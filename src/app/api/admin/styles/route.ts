@@ -13,7 +13,7 @@ const schema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    requireAdmin(req);
+    await requireAdmin(req);
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.code }, { status: 403 });
     throw e;
@@ -22,12 +22,12 @@ export async function POST(req: NextRequest) {
   const parsed = schema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "bad_request" }, { status: 400 });
 
-  const d = db();
+  const d = await db();
   if (d.styles.some((s) => s.slug === parsed.data.slug)) {
     return NextResponse.json({ error: "slug_exists" }, { status: 409 });
   }
 
-  mutate((draft) => {
+  await mutate((draft) => {
     draft.styles.push({
       id: uid("style"),
       slug: parsed.data.slug,

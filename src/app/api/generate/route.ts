@@ -21,7 +21,7 @@ const schema = z.object({
 export async function POST(req: NextRequest) {
   let user;
   try {
-    user = requireUser(req);
+    user = await requireUser(req);
   } catch (e) {
     if (e instanceof AuthError) {
       return NextResponse.json({ error: e.code }, { status: 401 });
@@ -47,10 +47,11 @@ export async function POST(req: NextRequest) {
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  const originalId = saveUpload(buffer, file.type).id;
-  const originalUrl = `/api/uploads/${originalId}`;
+  const savedUpload = await saveUpload(buffer, file.type);
+  const originalId = savedUpload.id;
+  const originalUrl = savedUpload.url;
 
-  const styles = activeStyles();
+  const styles = await activeStyles();
   let targetStyles: Style[] = [];
   let scope = parsed.data.scope;
 
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
   }
 
   // While testing we grant unlimited generations (no credits, no trial limit).
-  const unlimited = isUnlimitedMode();
+  const unlimited = await isUnlimitedMode();
 
   // Determine how this generation is "paid for".
   let consumed: Generation["mode"] = unlimited ? "unlimited" : "trial";
@@ -72,12 +73,12 @@ export async function POST(req: NextRequest) {
     if (scope === "single") {
       if (!user.trialUsed) {
         consumed = "trial";
-        mutate((d) => {
+        await mutate((d) => {
           const u = d.users.find((x) => x.id === user.id);
           if (u) u.trialUsed = true;
         });
       } else {
-        const ok = spendCredit(user.id);
+        const ok = await spendCredit(user.id);
         if (!ok) return NextResponse.json({ error: "no_credits" }, { status: 402 });
         consumed = "credit";
       }
@@ -87,20 +88,23 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "no_trial" }, { status: 403 });
       }
       consumed = "trial";
-      mutate((d) => {
+      await mutate((d) => {
         const u = d.users.find((x) => x.id === user.id);
         if (u) u.trialUsed = true;
       });
     }
   }
 
-  const mode = generationMode();
+  const mode = await generationMode();
   const isDemo = mode === "demo";
   const generations: Generation[] = [];
 
-  mutate((d) => {
-    for (const st of targetStyles) {
-      const plan = planGeneration(st);
+  const plans = await Promise.all(
+    targetStyles.map(async (st) => ({ st, plan: await planGeneration(st) }))
+  );
+
+  await mutate((d) => {
+    for (const { st, plan } of plans) {
       const g: Generation = {
         id: uid("gen"),
         userId: user.id,
@@ -124,7 +128,7 @@ export async function POST(req: NextRequest) {
   const payload = [];
   for (const g of generations) {
     const st = targetStyles.find((s) => s.id === g.styleId)!;
-    const plan = planGeneration(st);
+    const plan = await planGeneration(st);
     let status = g.status;
     let resultUrl = isDemo ? originalUrl : null;
     let provider = g.provider;
@@ -139,7 +143,7 @@ export async function POST(req: NextRequest) {
           provider = res.provider;
           status = "done";
           note = "Готово.";
-          mutate((d) => {
+          await mutate((d) => {
             const rec = d.generations.find((x) => x.id === g.id);
             if (rec) {
               rec.status = "done";
@@ -156,7 +160,7 @@ export async function POST(req: NextRequest) {
           status = "done";
           demoConfig = st.config;
           note = "Ключ ИИ не задан — показан демо-предпросмотр.";
-          mutate((d) => {
+          await mutate((d) => {
             const rec = d.generations.find((x) => x.id === g.id);
             if (rec) {
               rec.status = "done";
@@ -168,7 +172,7 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         status = "failed";
         note = "Ошибка генерации: " + (e instanceof Error ? e.message : "unknown");
-        mutate((d) => {
+        await mutate((d) => {
           const rec = d.generations.find((x) => x.id === g.id);
           if (rec) {
             rec.status = "failed";

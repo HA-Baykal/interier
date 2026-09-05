@@ -3,13 +3,13 @@ import { getSettingNumber } from "./config";
 import { User, Reward, Referral } from "./types";
 
 /** Number of credits granted per single rewarded action. */
-function rewardAmount(key: string, fallback = 1): number {
+async function rewardAmount(key: string, fallback = 1): Promise<number> {
   return getSettingNumber(key, fallback);
 }
 
 /** Add credits to a user (capped to avoid accidental overflow). */
-export function addCredits(userId: string, amount: number) {
-  mutate((d) => {
+export async function addCredits(userId: string, amount: number) {
+  await mutate((d) => {
     const u = d.users.find((x) => x.id === userId);
     if (u) {
       u.credits = Math.max(0, u.credits + amount);
@@ -17,9 +17,9 @@ export function addCredits(userId: string, amount: number) {
   });
 }
 
-export function spendCredit(userId: string): boolean {
+export async function spendCredit(userId: string): Promise<boolean> {
   let ok = false;
-  mutate((d) => {
+  await mutate((d) => {
     const u = d.users.find((x) => x.id === userId);
     if (u && u.credits > 0) {
       u.credits -= 1;
@@ -30,21 +30,21 @@ export function spendCredit(userId: string): boolean {
 }
 
 /** Detect the subscribing user (Telegram) and grant the one-time bonus. */
-export function grantTelegramBonus(
+export async function grantTelegramBonus(
   user: User,
   channel: "telegram" | "vk",
   externalId: number | null,
   username: string | null
-): { granted: boolean; already: boolean; credits: number } {
-  const d = db();
+): Promise<{ granted: boolean; already: boolean; credits: number }> {
+  const d = await db();
   const existing = d.rewards.find(
     (r) => r.userId === user.id && r.channel === channel
   );
   if (existing?.granted) return { granted: false, already: true, credits: 0 };
 
-  const amount = rewardAmount(channel === "telegram" ? "reward_telegram" : "reward_vk", 1);
+  const amount = await rewardAmount(channel === "telegram" ? "reward_telegram" : "reward_vk", 1);
 
-  mutate((draft) => {
+  await mutate((draft) => {
     let reward = draft.rewards.find(
       (r) => r.userId === user.id && r.channel === channel
     );
@@ -62,20 +62,16 @@ export function grantTelegramBonus(
     reward.granted = true;
     reward.grantedAt = now();
 
-    if (channel === "telegram") {
-      const u = draft.users.find((x) => x.id === user.id);
-      if (u) {
+    const u = draft.users.find((x) => x.id === user.id);
+    if (u) {
+      if (channel === "telegram") {
         u.telegramId = externalId;
         u.telegramUsername = username;
-        u.credits += amount;
-      }
-    } else {
-      const u = draft.users.find((x) => x.id === user.id);
-      if (u) {
+      } else {
         u.vkId = externalId;
         u.vkUsername = username;
-        u.credits += amount;
       }
+      u.credits += amount;
     }
   });
 
@@ -89,15 +85,15 @@ export type ReferralResult = {
 };
 
 /** Reward a referrer once per successfully-referenced new user. */
-export function grantReferralBonus(
+export async function grantReferralBonus(
   referrerUserId: string,
   referredEmail: string,
   referredUserId: string | null
-): ReferralResult {
-  const amount = rewardAmount("reward_referral", 1);
+): Promise<ReferralResult> {
+  const amount = await rewardAmount("reward_referral", 1);
   let outcome: ReferralResult = { ok: false };
 
-  mutate((d) => {
+  await mutate((d) => {
     const existing = d.referrals.find(
       (r) => r.referrerId === referrerUserId && r.referredEmail === referredEmail
     );
@@ -135,13 +131,13 @@ export function grantReferralBonus(
 }
 
 /** Count how many friends a user has successfully invited. */
-export function referralCount(userId: string): number {
-  return db().referrals.filter((r) => r.referrerId === userId && r.rewarded).length;
+export async function referralCount(userId: string): Promise<number> {
+  return (await db()).referrals.filter((r) => r.referrerId === userId && r.rewarded).length;
 }
 
 /** Which subscription bonuses have already been granted to a user. */
-export function grantedRewards(userId: string): { telegram: boolean; vk: boolean } {
-  const d = db();
+export async function grantedRewards(userId: string): Promise<{ telegram: boolean; vk: boolean }> {
+  const d = await db();
   return {
     telegram: !!d.rewards.find((r) => r.userId === userId && r.channel === "telegram" && r.granted),
     vk: !!d.rewards.find((r) => r.userId === userId && r.channel === "vk" && r.granted),
@@ -149,8 +145,8 @@ export function grantedRewards(userId: string): { telegram: boolean; vk: boolean
 }
 
 /** Referrals that are still pending (registered but not yet rewarded). */
-export function pendingReferrals(userId: string): Referral[] {
-  return db().referrals.filter(
+export async function pendingReferrals(userId: string): Promise<Referral[]> {
+  return (await db()).referrals.filter(
     (r) => r.referrerId === userId && !r.rewarded
   );
 }

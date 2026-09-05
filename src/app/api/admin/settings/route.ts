@@ -1,34 +1,51 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, AuthError } from "@/lib/auth";
-import { getSetting, setSetting, generationMode } from "@/lib/config";
+import { getSetting, setSetting } from "@/lib/config";
 import { db } from "@/lib/db";
 
 export async function GET(req: NextRequest) {
   try {
-    requireAdmin(req);
+    await requireAdmin(req);
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.code }, { status: 403 });
     throw e;
   }
 
-  const d = db();
+  const d = await db();
+  const [generation_mode, free_credits, reward_telegram, reward_vk, reward_referral, test_unlimited] =
+    await Promise.all([
+      getSetting("generation_mode"),
+      getSetting("free_credits"),
+      getSetting("reward_telegram"),
+      getSetting("reward_vk"),
+      getSetting("reward_referral"),
+      getSetting("test_unlimited"),
+    ]);
+  const [compatible_provider, compatible_base_url, compatible_api_key, compatible_model] =
+    await Promise.all([
+      getSetting("compatible_provider"),
+      getSetting("compatible_base_url"),
+      getSetting("compatible_api_key"),
+      getSetting("compatible_model"),
+    ]);
+
+  const base = compatible_base_url || process.env.COMPATIBLE_BASE_URL || "https://api.gen-api.ru";
+  const key = compatible_api_key || process.env.COMPATIBLE_API_KEY || "";
+  const model = compatible_model || process.env.COMPATIBLE_MODEL || "gpt-image-2";
+
   return NextResponse.json({
     settings: {
-      generation_mode: getSetting("generation_mode") || "demo",
-      free_credits: getSetting("free_credits") || "0",
-      reward_telegram: getSetting("reward_telegram") || "1",
-      reward_vk: getSetting("reward_vk") || "1",
-      reward_referral: getSetting("reward_referral") || "1",
-      test_unlimited: getSetting("test_unlimited") || "1",
-      compatible_provider: getSetting("compatible_provider") || "genapi",
-      compatible_base_url: getSetting("compatible_base_url") || process.env.COMPATIBLE_BASE_URL || "https://api.gen-api.ru",
-      compatible_api_key: getSetting("compatible_api_key") || process.env.COMPATIBLE_API_KEY || "",
-      compatible_model: getSetting("compatible_model") || process.env.COMPATIBLE_MODEL || "gpt-image-2",
-      compatible_configured: !!(
-        (getSetting("compatible_base_url") || process.env.COMPATIBLE_BASE_URL) &&
-        (getSetting("compatible_api_key") || process.env.COMPATIBLE_API_KEY) &&
-        (getSetting("compatible_model") || process.env.COMPATIBLE_MODEL)
-      ),
+      generation_mode: generation_mode || "demo",
+      free_credits: free_credits || "0",
+      reward_telegram: reward_telegram || "1",
+      reward_vk: reward_vk || "1",
+      reward_referral: reward_referral || "1",
+      test_unlimited: test_unlimited || "1",
+      compatible_provider: compatible_provider || "genapi",
+      compatible_base_url: base,
+      compatible_api_key: key,
+      compatible_model: model,
+      compatible_configured: !!(base && key && model),
     },
     stats: {
       users: d.users.length,
@@ -59,7 +76,7 @@ const ALLOWED = [
 
 export async function PUT(req: NextRequest) {
   try {
-    requireAdmin(req);
+    await requireAdmin(req);
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.code }, { status: 403 });
     throw e;
@@ -72,7 +89,7 @@ export async function PUT(req: NextRequest) {
 
   for (const key of ALLOWED) {
     if (key in body && typeof body[key] === "string") {
-      setSetting(key, body[key].trim());
+      await setSetting(key, body[key].trim());
     }
   }
 

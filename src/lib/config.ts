@@ -169,15 +169,15 @@ const DEFAULT_SETTINGS: Record<string, string> = {
  * Idempotent: it seeds styles/packages only when absent, and upserts any
  * missing settings keys (so future defaults are added to existing databases).
  */
-export function ensureSeeded() {
-  const d = db();
+export async function ensureSeeded() {
+  const d = await db();
   if (d.styles.length === 0) {
-    mutate((draft) => {
+    await mutate((draft) => {
       draft.styles = structuredClone(DEFAULT_STYLES);
     });
   }
   if (d.packages.length === 0) {
-    mutate((draft) => {
+    await mutate((draft) => {
       draft.packages = structuredClone(DEFAULT_PACKAGES);
     });
   }
@@ -185,7 +185,7 @@ export function ensureSeeded() {
   const present = new Set(d.settings.map((s) => s.key));
   const missing = Object.entries(DEFAULT_SETTINGS).filter(([k]) => !present.has(k));
   if (missing.length > 0) {
-    mutate((draft) => {
+    await mutate((draft) => {
       for (const [k, v] of missing) {
         if (!draft.settings.some((s) => s.key === k)) {
           draft.settings.push({ key: k, value: v });
@@ -195,19 +195,19 @@ export function ensureSeeded() {
   }
 }
 
-export function getSetting(key: string): string | null {
-  return db().settings.find((s) => s.key === key)?.value ?? null;
+export async function getSetting(key: string): Promise<string | null> {
+  return (await db()).settings.find((s) => s.key === key)?.value ?? null;
 }
 
-export function getSettingNumber(key: string, fallback: number): number {
-  const v = getSetting(key);
+export async function getSettingNumber(key: string, fallback: number): Promise<number> {
+  const v = await getSetting(key);
   if (v === null) return fallback;
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
 
-export function setSetting(key: string, value: string) {
-  mutate((d) => {
+export async function setSetting(key: string, value: string) {
+  await mutate((d) => {
     const existing = d.settings.find((s) => s.key === key);
     if (existing) existing.value = value;
     else d.settings.push({ key, value });
@@ -215,29 +215,29 @@ export function setSetting(key: string, value: string) {
 }
 
 /** Whether unlimited (test) generation mode is enabled for the current user. */
-export function isUnlimitedMode(): boolean {
-  return getSetting("test_unlimited") === "1";
+export async function isUnlimitedMode(): Promise<boolean> {
+  return (await getSetting("test_unlimited")) === "1";
 }
 
-export function activeStyles(): Style[] {
-  return db().styles.filter((s) => s.active);
+export async function activeStyles(): Promise<Style[]> {
+  return (await db()).styles.filter((s) => s.active);
 }
 
-export function activePackages(): Package[] {
-  return db().packages.filter((p) => p.active);
+export async function activePackages(): Promise<Package[]> {
+  return (await db()).packages.filter((p) => p.active);
 }
 
-export function generationMode(): string {
-  return getSetting("generation_mode") || process.env.GENERATION_MODE || "demo";
+export async function generationMode(): Promise<string> {
+  return (await getSetting("generation_mode")) || process.env.GENERATION_MODE || "demo";
 }
 
 /** The single, canonical shorthand used across the app. */
-export function activeGenerationMode(): "demo" | "compatible" | "replicate" {
-  const m = generationMode();
+export async function activeGenerationMode(): Promise<"demo" | "compatible" | "replicate"> {
+  const m = await generationMode();
   if (m === "compatible" || m === "replicate") return m;
   return "demo";
 }
 
-export function defaultStyle(): Style {
-  return activeStyles()[0] || DEFAULT_STYLES[0];
+export async function defaultStyle(): Promise<Style> {
+  return (await activeStyles())[0] || DEFAULT_STYLES[0];
 }

@@ -3,11 +3,11 @@ import { getUserFromRequest } from "@/lib/auth";
 import { referralCount, grantedRewards } from "@/lib/billing";
 
 export async function GET(req: NextRequest) {
-  const user = getUserFromRequest(req);
+  const user = await getUserFromRequest(req);
   if (!user) {
     return NextResponse.json({ user: null });
   }
-  const rewards = grantedRewards(user.id);
+  const rewards = await grantedRewards(user.id);
   return NextResponse.json({
     user: {
       id: user.id,
@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
       telegramGranted: rewards.telegram,
       vkGranted: rewards.vk,
       isAdmin: user.isAdmin,
-      referralCount: referralCount(user.id),
+      referralCount: await referralCount(user.id),
     },
   });
 }

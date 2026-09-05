@@ -58,6 +58,53 @@ function StyledImage({
   );
 }
 
+// Downscale/compress an uploaded photo on the client so it fits within
+// serverless request-body limits (Vercel ~4.5MB) and reaches the API reliably.
+const MAX_DIM = 2048;
+const TARGET_BYTES = 2.8 * 1024 * 1024;
+
+function fileToImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob | null> {
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+}
+
+async function downscaleImage(file: File): Promise<File | null> {
+  try {
+    const img = await fileToImage(file);
+    const scale = Math.min(1, MAX_DIM / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0, w, h);
+    URL.revokeObjectURL(img.src);
+    const baseName = (file.name.replace(/\.[^.]+$/, "") || "room") + ".jpg";
+    for (const q of [0.9, 0.8, 0.7, 0.6]) {
+      const blob = await canvasToBlob(canvas, q);
+      if (blob && blob.size <= TARGET_BYTES) {
+        return new File([blob], baseName, { type: "image/jpeg" });
+      }
+    }
+    const blob = await canvasToBlob(canvas, 0.5);
+    if (blob) return new File([blob], baseName, { type: "image/jpeg" });
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export default function Studio({ user, styles }: { user: ClientUser; styles: ClientStyle[] }) {
   const { t, locale } = useLocale();
   const router = useRouter();
@@ -83,7 +130,7 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
       .catch(() => {});
   }, []);
 
-  function acceptFile(f: File | null) {
+  async function acceptFile(f: File | null) {
     if (!f) return;
     if (!f.type.startsWith("image/")) {
       setError(t("studio_upload_hint"));
@@ -94,9 +141,21 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
       return;
     }
     setError(null);
-    setFile(f);
-    setPreviewUrl(URL.createObjectURL(f));
-    setResults([]);
+    try {
+      // Downscale/compress so uploads fit within serverless body limits (Vercel
+      // ~4.5MB) and reach the API reliably. Interior photos don't need PNG or
+      // full resolution: a ~2048px JPEG at good quality is more than enough.
+      const processed = await downscaleImage(f);
+      if (!processed) {
+        setError(t("studio_upload_hint"));
+        return;
+      }
+      setFile(processed);
+      setPreviewUrl(URL.createObjectURL(processed));
+      setResults([]);
+    } catch {
+      setError(t("studio_upload_hint"));
+    }
   }
 
   async function generate(scope: "single" | "all") {

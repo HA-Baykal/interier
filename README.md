@@ -37,15 +37,31 @@ npm start
 
 ## Деплой
 
-> ⚠️ **Перед деплоем на serverless-платформы (Vercel).** Приложение хранит базу и
-> загруженные фото **в файлах на диске** (`data/app.json`, `data/uploads/`).
-> У Vercel файловая система **эфимерна** (не сохраняется между запросами), поэтому
-> база/фото будут стираться. Для Vercel нужно переносить данные в облачную БД и
-> хранилище (async-переработка `src/lib/db.ts`) — это отдельная задача.
->
-> **Сейчас проще и надёжнее деплоить на хостинг с постоянным диском**
-> (Render / Railway / VPS), где `next start` работает как обычный Node-процесс
-> и файловая база сохраняется.
+Хранилище реализовано как **двухрежимное**: если заданы переменные облачного
+хранилища — работаем на Vercel (БД = Upstash Redis / Vercel KV одной JSON-документом,
+фото = Vercel Blob); без них — локальный файл `data/app.json` + `data/uploads/`.
+
+### Vercel (serverless)
+
+1. Импортируйте репозиторий в Vercel (production-ветка — та, где лежит сайт).
+2. Подключите два хранилища в панели Vercel:
+   - **KV / Redis** (Upstash Redis или Vercel KV) — для базы.
+   - **Blob** — для фото.
+   Vercel сам подставит переменные (`UPSTASH_REDIS_REST_URL` / `..._TOKEN`,
+   `BLOB_READ_WRITE_TOKEN`).
+3. В **Environment Variables** добавьте приложения:
+   - `GENERATION_MODE`=`compatible`
+   - `COMPATIBLE_PROVIDER`=`genapi`
+   - `COMPATIBLE_BASE_URL`=`https://api.gen-api.ru`
+   - `COMPATIBLE_API_KEY`=`<ваш ключ gen-api.ru>`
+   - `COMPATIBLE_MODEL`=`gpt-image-2`
+   - `SESSION_SECRET`=длинная случайная строка
+   - `ADMIN_EMAIL` / `ADMIN_PASSWORD` (по умолчанию `admin@interier.ru` / `admin123`)
+4. Deploy. `npm run build` + runtime `next start` выполняются автоматически.
+
+> На бесплатном тарифе Vercel лимиты KV/Blob ограничены — для небольшого числа
+> пользователей теста хватает. Если упрётесь в лимиты, добавьте платный план или
+> вынесите данные на отдельный постоянный хостинг.
 
 ### Render (бесплатный тариф) — рекомендация
 

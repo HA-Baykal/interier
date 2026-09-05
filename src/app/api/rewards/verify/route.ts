@@ -12,7 +12,7 @@ const schema = z.object({
 export async function POST(req: NextRequest) {
   let user;
   try {
-    user = requireUser(req);
+    user = await requireUser(req);
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.code }, { status: 401 });
     throw e;
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
 
   // Demo mode: no platform token, so verification is simulated.
   // When a real token is configured this would call Telegram/VK API.
-  const result = grantTelegramBonus(
+  const result = await grantTelegramBonus(
     user,
     parsed.data.channel,
     parsed.data.externalId ? Number(parsed.data.externalId) : null,

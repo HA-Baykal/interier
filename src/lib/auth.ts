@@ -77,9 +77,9 @@ export function verifyPassword(password: string, hash: string): boolean {
   return bcrypt.compareSync(password, hash);
 }
 
-export function makeSession(userId: string): string {
+export async function makeSession(userId: string): Promise<string> {
   const token = uid("sess");
-  mutate((d) => {
+  await mutate((d) => {
     d.sessions.push({
       token,
       userId,
@@ -100,16 +100,16 @@ export function resolveSessionToken(opts: {
 }
 
 /** Resolve a user from a raw session token (cookie/header/query). */
-export function getUserByToken(token: string | null | undefined): User | null {
+export async function getUserByToken(token: string | null | undefined): Promise<User | null> {
   if (!token) return null;
-  const d = db();
+  const d = await db();
   const session = d.sessions.find((s) => s.token === token);
   if (!session || session.expiresAt < now()) return null;
   return d.users.find((u) => u.id === session.userId) || null;
 }
 
 /** Resolve the current user from a NextRequest (cookie, header or ?ses= query). */
-export function getUserFromRequest(req: NextRequest): User | null {
+export async function getUserFromRequest(req: NextRequest): Promise<User | null> {
   const token = resolveSessionToken({
     cookieVal: req.cookies.get(SESSION_COOKIE)?.value,
     headerVal: req.headers.get("x-session-token"),
@@ -129,7 +129,7 @@ export function clearSessionCookie(isSecure = false) {
   });
 }
 
-export function getSessionUser(): User | null {
+export async function getSessionUser(): Promise<User | null> {
   const token = cookies().get(SESSION_COOKIE)?.value;
   return getUserByToken(token);
 }
@@ -140,11 +140,11 @@ export function getSessionUser(): User | null {
  * found via the URL token, we also promote it into a cookie so subsequent
  * in-app navigations keep working without the query string.
  */
-export function resolvePageUser(queryVal?: string | null): User | null {
-  const cookieUser = getSessionUser();
+export async function resolvePageUser(queryVal?: string | null): Promise<User | null> {
+  const cookieUser = await getSessionUser();
   if (cookieUser) return cookieUser;
 
-  const fromQuery = getUserByToken(queryVal);
+  const fromQuery = await getUserByToken(queryVal);
   if (fromQuery) {
     // Promote the URL token into a cookie (best-effort; works over first-party
     // HTTPS, harmless otherwise).
@@ -158,20 +158,20 @@ export function resolvePageUser(queryVal?: string | null): User | null {
   return null;
 }
 
-export function requireUser(req?: NextRequest): User {
-  const user = req ? getUserFromRequest(req) : getSessionUser();
+export async function requireUser(req?: NextRequest): Promise<User> {
+  const user = req ? await getUserFromRequest(req) : await getSessionUser();
   if (!user) throw new AuthError("NOT_AUTHENTICATED");
   return user;
 }
 
-export function requireAdmin(req?: NextRequest): User {
-  const user = requireUser(req);
+export async function requireAdmin(req?: NextRequest): Promise<User> {
+  const user = await requireUser(req);
   if (!user.isAdmin) throw new AuthError("NOT_ADMIN");
   return user;
 }
 
-export function destroySession(token: string) {
-  mutate((d) => {
+export async function destroySession(token: string) {
+  await mutate((d) => {
     d.sessions = d.sessions.filter((s) => s.token !== token);
   });
 }
@@ -185,12 +185,12 @@ export class AuthError extends Error {
 }
 
 /** Deterministic-ish referral code generator that stays unique. */
-export function makeReferralCode(email: string): string {
+export async function makeReferralCode(email: string): Promise<string> {
   const base = email
     .replace(/[^a-zA-Z0-9]/g, "")
     .slice(0, 6)
     .toUpperCase() || "USER";
-  const d = db();
+  const d = await db();
   let code = `${base}${Math.floor(1000 + Math.random() * 9000)}`;
   while (d.users.some((u) => u.referralCode === code)) {
     code = `${base}${Math.floor(1000 + Math.random() * 9000)}`;

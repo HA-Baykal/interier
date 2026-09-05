@@ -6,16 +6,16 @@ import {
   buildInteriorEditPrompt,
   runCompatibleEdit,
 } from "./edit-compatible";
-import { saveUpload } from "@/app/api/upload/service";
+import { saveUpload, resolveImageUrl } from "@/app/api/upload/service";
 
 /**
  * Pluggable generation provider (path #1 — Russian API aggregator).
  *
  * mode: "demo"        -> the client renders a realistic style preview locally.
- * mode: "compatible"  -> calls an OpenAI-compatible image-edit endpoint
- *                        (provod.ai / GenAPI / etc.) with a structure-
- *                        preserving interior prompt. BEST for our requirement:
- *                        walls, windows, doors and floor plan stay untouched.
+ * mode: "compatible"  -> calls a Russian image-edit endpoint (GenAPI / provod.ai)
+ *                        with a structure-preserving interior prompt. BEST for our
+ *                        requirement: walls, windows, doors and floor plan stay
+ *                        untouched.
  * mode: "replicate"   -> legacy Replicate client (for reference).
  */
 
@@ -30,15 +30,15 @@ export type GenerationPlan = {
   note: string;
 };
 
-export function planGeneration(style: Style): GenerationPlan {
-  const mode = generationMode();
+export async function planGeneration(style: Style): Promise<GenerationPlan> {
+  const mode = await generationMode();
   const prompt = buildInteriorEditPrompt(style.name.en, style.description.en);
 
   switch (mode) {
     case "compatible": {
-      const cfg = getCompatibleConfig();
+      const cfg = await getCompatibleConfig();
       return {
-        provider: cfg?.model || "Image edit",
+        provider: cfg?.provider === "openai-compatible" ? "provod.ai" : cfg?.model || "Image edit",
         mode,
         demoConfig: null,
         prompt,
@@ -80,7 +80,7 @@ export async function executeRealGeneration(
   if (!plan.prompt) return null;
 
   if (plan.mode === "compatible") {
-    const cfg = getCompatibleConfig();
+    const cfg = await getCompatibleConfig();
     if (!cfg) return null; // key not configured -> stay in demo
     const r = await runCompatibleEdit(cfg, imageBuffer, mime, plan.prompt);
     return await persistResult(r.outputUrl, r.provider);
@@ -96,7 +96,7 @@ export async function executeRealGeneration(
   return null;
 }
 
-/** Download (or accept a data URI) and store the generated image locally. */
+/** Download (or accept a data URI) and store the generated image. */
 async function persistResult(
   outputUrl: string,
   provider: string
@@ -117,6 +117,6 @@ async function persistResult(
     m = ext === "jpg" ? "image/jpeg" : ext === "webp" ? "image/webp" : "image/png";
   }
 
-  const saved = saveUpload(buf, m);
-  return { resultUrl: `/api/uploads/${saved.id}`, provider };
+  const saved = await saveUpload(buf, m);
+  return { resultUrl: resolveImageUrl(saved.url), provider };
 }

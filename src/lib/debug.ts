@@ -7,13 +7,22 @@ import { db } from "./db";
  * sees on auth calls when running under the Arena preview proxy. This lets us
  * confirm the root cause of the persistent login loop without guessing.
  */
-export function logAuthDiag(req: Request, label: string) {
+export async function logAuthDiag(req: Request, label: string) {
   try {
     const h = req.headers as unknown as Record<string, string | string[] | undefined>;
     const get = (k: string) => {
       const v = h[k.toLowerCase()] ?? h[k] ?? req.headers.get(k) ?? "";
       return Array.isArray(v) ? v.join(",") : String(v);
     };
+    let userId: string | null | undefined;
+    try {
+      const c = req.headers.get("cookie") || "";
+      const m = c.match(/interier_session=([^;]+)/);
+      if (!m) userId = null;
+      else userId = (await db()).sessions.find((x) => x.token === m[1])?.userId ?? "session-not-found";
+    } catch {
+      userId = "err";
+    }
     const line = {
       at: new Date().toISOString(),
       label,
@@ -23,18 +32,7 @@ export function logAuthDiag(req: Request, label: string) {
       cfVisitor: get("cf-visitor"),
       secFetchSite: req.headers.get("sec-fetch-site"),
       cookie: req.headers.get("cookie") ? "<has-cookie>" : "<none>",
-      userId: (() => {
-        try {
-          // No async here; just parse the cookie for the session token.
-          const c = req.headers.get("cookie") || "";
-          const m = c.match(/interier_session=([^;]+)/);
-          if (!m) return null;
-          const s = db().sessions.find((x) => x.token === m[1]);
-          return s?.userId ?? "session-not-found";
-        } catch {
-          return "err";
-        }
-      })(),
+      userId,
     };
     const file = path.join(process.cwd(), "data", "auth-diag.log");
     fs.mkdirSync(path.dirname(file), { recursive: true });

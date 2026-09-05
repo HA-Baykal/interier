@@ -5,16 +5,16 @@ import { activeStyles } from "@/lib/config";
 import { referralCount, grantedRewards } from "@/lib/billing";
 import { ClientStyle } from "@/components/types";
 
-export default function StudioPage({
+export default async function StudioPage({
   searchParams,
 }: {
   searchParams: { [key: string]: string | string[] | undefined };
 }) {
   const query = typeof searchParams.ses === "string" ? searchParams.ses : null;
-  const user = resolvePageUser(query);
+  const user = await resolvePageUser(query);
   if (!user) redirect("/login");
 
-  const styles: ClientStyle[] = activeStyles().map((s) => ({
+  const styles: ClientStyle[] = (await activeStyles()).map((s) => ({
     id: s.id,
     slug: s.slug,
     nameRu: s.name.ru,
@@ -28,6 +28,7 @@ export default function StudioPage({
     vignette: s.config.vignette,
     active: s.active,
   }));
+  const rewards = await grantedRewards(user.id);
 
   return (
     <Studio
@@ -41,10 +42,10 @@ export default function StudioPage({
         referredBy: user.referredBy,
         telegramId: user.telegramId,
         vkId: user.vkId,
-        telegramGranted: grantedRewards(user.id).telegram,
-        vkGranted: grantedRewards(user.id).vk,
+        telegramGranted: rewards.telegram,
+        vkGranted: rewards.vk,
         isAdmin: user.isAdmin,
-        referralCount: referralCount(user.id),
+        referralCount: await referralCount(user.id),
       }}
       styles={styles}
     />

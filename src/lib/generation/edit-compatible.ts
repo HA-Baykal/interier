@@ -24,16 +24,16 @@ export type CompatibleConfig = {
   model: string;
 };
 
-export function getCompatibleConfig(): CompatibleConfig | null {
+export async function getCompatibleConfig(): Promise<CompatibleConfig | null> {
   const provider: CompatibleProvider =
-    (getSetting("compatible_provider") as CompatibleProvider) || "genapi";
+    ((await getSetting("compatible_provider")) as CompatibleProvider) || "genapi";
   const defaultBase = provider === "openai-compatible" ? "https://api.provod.ai/v1" : "https://api.gen-api.ru";
   const baseUrl =
-    getSetting("compatible_base_url") || process.env.COMPATIBLE_BASE_URL || defaultBase;
+    (await getSetting("compatible_base_url")) || process.env.COMPATIBLE_BASE_URL || defaultBase;
   const apiKey =
-    getSetting("compatible_api_key") || process.env.COMPATIBLE_API_KEY || "";
+    (await getSetting("compatible_api_key")) || process.env.COMPATIBLE_API_KEY || "";
   let model =
-    getSetting("compatible_model") || process.env.COMPATIBLE_MODEL || "gpt-image-2";
+    (await getSetting("compatible_model")) || process.env.COMPATIBLE_MODEL || "gpt-image-2";
   // GenAPI uses the bare model id (e.g. "gpt-image-2", "nano-banana-pro").
   // Some OpenAI-style names carry a provider prefix ("google/nano-banana",
   // "openai/gpt-image-2") — strip it for the native GenAPI endpoint.

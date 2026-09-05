@@ -9,6 +9,7 @@ import { getGenerationSettings, validateCompatibleConfig } from "@/lib/generatio
 import { RequestError, safeErrorMessage } from "@/lib/errors";
 import { assertDurableDatabase, assertDurableUploads } from "@/lib/storage-config";
 import type { Generation } from "@/lib/types";
+import { IMAGE_QUALITIES, DEFAULT_IMAGE_QUALITY, supportsImageQuality } from "@/lib/generation/quality";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ export const maxDuration = 300;
 const schema = z.object({
   styleId: z.string().optional(),
   scope: z.enum(["single", "all"]).default("single"),
+  quality: z.enum(IMAGE_QUALITIES).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -28,14 +30,18 @@ export async function POST(req: NextRequest) {
     const form = await req.formData().catch(() => null);
     const file = form?.get("file");
     if (!(file instanceof File)) throw new RequestError("file_required", "Выберите фото комнаты.");
-    const parsed = schema.safeParse({ styleId: form?.get("styleId") || undefined, scope: form?.get("scope") || "single" });
-    if (!parsed.success) throw new RequestError("bad_request", "Некорректный стиль или режим генерации.");
+    const parsed = schema.safeParse({
+      styleId: form?.get("styleId") || undefined, scope: form?.get("scope") || "single",
+      // Missing preserves legacy high; blank/invalid must NOT silently become high.
+      quality: form?.get("quality") ?? undefined,
+    });
+    if (!parsed.success) throw new RequestError("bad_request", "Некорректный стиль, качество или режим генерации.");
     if (!file.size || file.size > maxOriginalBytes()) throw new RequestError("file_too_large", "Фото должно быть не больше 20 МБ.", 413);
     const buffer = Buffer.from(await file.arrayBuffer());
     const mime = imageMime(buffer);
     if (!mime) throw new RequestError("not_image", "Поддерживаются только фото JPEG, PNG и WebP.");
 
-    const { scope, styleId } = parsed.data;
+    const { scope, styleId, quality } = parsed.data;
     const styles = await activeStyles();
     const targetStyles = scope === "all" ? styles : styles.filter((s) => s.id === styleId);
     if (!targetStyles.length) throw new RequestError("style_not_found", "Выбранный стиль не найден.");
@@ -43,9 +49,15 @@ export async function POST(req: NextRequest) {
     apiKey = settings.compatible.apiKey;
     const isDemo = settings.mode === "demo";
     if (!isDemo && !settings.aiConfigured) throw new RequestError("ai_not_configured", "Ключ ИИ не настроен. Администратору нужно сохранить API-ключ в настройках.", 503);
-    if (settings.mode === "compatible") validateCompatibleConfig(settings.compatible);
+    const qualitySupported = supportsImageQuality(settings.mode, settings.compatible.provider, settings.compatible.model);
+    if (quality !== undefined && !user.isAdmin) throw new RequestError("quality_forbidden", "Тестовый выбор качества доступен администратору.", 403);
+    if (quality !== undefined && !qualitySupported) throw new RequestError("quality_not_supported", "Выбор качества доступен только для GenAPI GPT Image 2. Обновите страницу.");
+    // Clone this request's settings. No mutation of the DB, environment or other requests.
+    const requestSettings = quality === undefined ? settings : { ...settings, compatible: { ...settings.compatible, quality } };
+    const generationQuality = qualitySupported ? quality ?? DEFAULT_IMAGE_QUALITY : undefined;
+    if (settings.mode === "compatible") validateCompatibleConfig(requestSettings.compatible);
     const unlimited = await isUnlimitedMode();
-    const plans = await Promise.all(targetStyles.map(async (st) => ({ st, id: uid("gen"), plan: await planGeneration(st, settings) })));
+    const plans = await Promise.all(targetStyles.map(async (st) => ({ st, id: uid("gen"), plan: await planGeneration(st, requestSettings) })));
     const upload = await saveUpload(buffer, mime);
 
     // Check the current balance/trial and create records together, not using a stale user snapshot.
@@ -62,7 +74,7 @@ export async function POST(req: NextRequest) {
       const generations: Generation[] = plans.map(({ st, id, plan }) => ({
         id, userId: user.id, styleId: st.id, originalId: upload.id, originalUrl: upload.url,
         resultUrl: isDemo ? upload.url : null, status: isDemo ? "done" : "processing",
-        error: null, mode: consumed, provider: plan.provider, createdAt: now(), published: false,
+        error: null, mode: consumed, provider: plan.provider, quality: generationQuality, createdAt: now(), published: false,
       }));
       d.generations.push(...generations);
       return { generations, consumed };
@@ -91,7 +103,7 @@ export async function POST(req: NextRequest) {
       }
       return {
         id: g.id, styleId: st.id, styleSlug: st.slug, originalUrl: upload.url,
-        resultUrl, status, provider, mode: consumed, demoConfig: plan.demoConfig,
+        resultUrl, status, provider, quality: g.quality, mode: consumed, demoConfig: plan.demoConfig,
         note, error, consumed, published: false,
       };
     }));

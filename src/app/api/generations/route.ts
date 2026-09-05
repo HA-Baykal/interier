@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser, AuthError } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { activeStyles } from "@/lib/config";
+import { isImageQuality } from "@/lib/generation/quality";
 
 export async function GET(req: NextRequest) {
   let user;
@@ -29,6 +30,7 @@ export async function GET(req: NextRequest) {
         status: g.status,
         error: g.error,
         provider: g.provider,
+        quality: isImageQuality(g.quality) ? g.quality : undefined,
         mode: g.mode,
         published: !!g.published,
         createdAt: g.createdAt,

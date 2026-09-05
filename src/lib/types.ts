@@ -1,3 +1,5 @@
+import type { ImageQuality } from "./generation/quality";
+
 export type Locale = "ru" | "en";
 
 export type StyleConfig = {
@@ -69,6 +71,8 @@ export type Generation = {
   error: string | null;
   mode: "trial" | "credit" | "unlimited";
   provider: string;
+  /** Actual request quality for GPT Image 2; absent on legacy/other-model records. */
+  quality?: ImageQuality;
   createdAt: number;
   /** Whether the owner opted to showcase this design in the public gallery. */
   published: boolean;

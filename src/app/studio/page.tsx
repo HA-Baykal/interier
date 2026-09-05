@@ -5,6 +5,7 @@ import { activeStyles, isUnlimitedMode } from "@/lib/config";
 import { referralCount, grantedRewards } from "@/lib/billing";
 import { ClientStyle } from "@/components/types";
 import { getGenerationSettings } from "@/lib/generation/settings";
+import { supportsImageQuality } from "@/lib/generation/quality";
 
 export default async function StudioPage({
   searchParams,
@@ -53,6 +54,7 @@ export default async function StudioPage({
       aiConfigured={generation.aiConfigured}
       isDemo={generation.mode === "demo"}
       initialUnlimited={await isUnlimitedMode()}
+      canChooseQuality={user.isAdmin && generation.aiConfigured && supportsImageQuality(generation.mode, generation.compatible.provider, generation.compatible.model)}
     />
   );
 }

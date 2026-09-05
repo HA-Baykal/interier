@@ -80,7 +80,7 @@ function verifyResponse(data: unknown, cfg: CompatibleConfig, httpStatus: number
   if (!valid) return unexpectedResponse(httpStatus);
   return { ok: true, code: "accepted", keyAccepted: true, httpStatus,
     ...(cfg.provider === "genapi" ? { hasBalance: Number(balance) > 0 } : {}),
-    message: "Ключ принят. Это проверка доступа, не проверка генерации или доступности выбранной модели." };
+    message: "Ключ принят. Это проверка доступа, не проверка генерации или доступности выбранной модели. Положительный баланс не означает, что его хватит на выбранное качество и число изображений." };
 }
 
 export async function probeCompatible(cfg: CompatibleConfig): Promise<ProbeResult> {

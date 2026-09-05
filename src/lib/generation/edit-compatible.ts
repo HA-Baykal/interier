@@ -15,6 +15,7 @@
 
 import { providerHttpError, providerErrorDetail } from "../errors";
 import { validateCompatibleConfig, type CompatibleConfig } from "./settings";
+import { DEFAULT_IMAGE_QUALITY, GPT_IMAGE_2_SIZE } from "./quality";
 export { getCompatibleConfig } from "./settings";
 export type { CompatibleConfig, CompatibleProvider } from "./settings";
 
@@ -86,8 +87,8 @@ async function genApiRequest(
   const payload = {
     prompt,
     image_urls: [imageUrl],
-    quality: "high",
-    image_size: "1024x1024",
+    quality: cfg.quality ?? DEFAULT_IMAGE_QUALITY,
+    image_size: GPT_IMAGE_2_SIZE,
     num_images: 1,
     output_format: "png",
   };

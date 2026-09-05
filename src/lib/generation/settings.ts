@@ -1,6 +1,7 @@
 import { db } from "../db";
 import { cleanConnectionValue } from "../env";
 import type { Setting } from "../types";
+import { isImageQuality, supportsImageQuality, type ImageQuality } from "./quality";
 
 export type GenerationMode = "demo" | "compatible" | "replicate";
 export type CompatibleProvider = "genapi" | "openai-compatible";
@@ -9,6 +10,8 @@ export type CompatibleConfig = {
   baseUrl: string;
   apiKey: string;
   model: string;
+  /** Per-request override, never saved by the global settings resolver. */
+  quality?: ImageQuality;
 };
 
 /** One resolver for the API, studio, admin form and diagnostics. */
@@ -63,4 +66,7 @@ export function validateCompatibleConfig(cfg: CompatibleConfig): void {
   }
   if (!/^[\x21-\x7e]+$/.test(cfg.apiKey)) throw new Error("Invalid API key: use the provider's API token without quotes or whitespace");
   if (!/^[a-zA-Z0-9_.\/-]+$/.test(cfg.model) || cfg.model.includes("..")) throw new Error("Invalid AI model ID");
+  if (cfg.quality !== undefined && (!isImageQuality(cfg.quality) || !supportsImageQuality("compatible", cfg.provider, cfg.model))) {
+    throw new Error("Invalid AI quality override: medium/high is supported only for GenAPI GPT Image 2");
+  }
 }

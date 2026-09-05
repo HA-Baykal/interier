@@ -190,7 +190,7 @@ test("runtime JWTs echoed in an error are redacted even when absent from the env
 });
 
 
-async function prepareGeneration() {
+async function prepareGeneration(quality?: string) {
   const store = await import("../src/lib/db");
   const seed = await import("../src/lib/config");
   await store.resetDb();
@@ -205,12 +205,13 @@ async function prepareGeneration() {
   form.set("file", new File([PNG], "room.png", { type: "image/png" }));
   form.set("styleId", "style_modern");
   form.set("scope", "single");
+  if (quality !== undefined) form.set("quality", quality);
   return { store, request: new NextRequest("https://protected-preview.example.test/api/generate", {
     method: "POST", headers: { "x-session-token": "image-pipeline-session" }, body: form,
   }) };
 }
 
-test("generation uses the already-stored OIDC Blob URL and stores the result with refreshed credentials", async (t) => {
+test("generation sends the selected medium quality and saved OIDC photo, then stores its result with refreshed credentials", async (t) => {
   // A local file DB plus the real Blob SDK wire fixture; no real cloud credentials.
   delete process.env.BLOB_READ_WRITE_TOKEN;
   process.env.BLOB_STORE_ID = "store_linked";
@@ -218,7 +219,7 @@ test("generation uses the already-stored OIDC Blob URL and stores the result wit
   const nextToken = oidcToken("after-generation");
   process.env.VERCEL_OIDC_TOKEN = firstToken;
   publicOrigin = "https://photos.example.test";
-  const { store, request } = await prepareGeneration();
+  const { store, request } = await prepareGeneration("medium");
   const { POST } = await import("../src/app/api/generate/route");
   let starts = 0;
   let sentPhoto = "";
@@ -228,6 +229,9 @@ test("generation uses the already-stored OIDC Blob URL and stores the result wit
       assert.equal(url, "https://api.gen-api.ru/api/v1/networks/gpt-image-2");
       assert.equal(writes.length, 1, "the original is uploaded once, before the paid start");
       const payload = JSON.parse(String(init.body));
+      assert.equal(payload.quality, "medium");
+      assert.equal(payload.image_size, "1024x1024");
+      assert.equal(payload.num_images, 1);
       sentPhoto = payload.image_urls[0];
       assert.equal(sentPhoto, `${publicOrigin}/files/${encodeURIComponent(writes[0])}`);
       assert.equal(Object.hasOwn(payload, "callback_url"), false);
@@ -249,6 +253,7 @@ test("generation uses the already-stored OIDC Blob URL and stores the result wit
   assert.equal(body.isDemo, false);
   assert.equal(body.generations[0].status, "done");
   assert.equal(body.generations[0].originalUrl, sentPhoto);
+  assert.equal(body.generations[0].quality, "medium");
   assert.ok(body.generations[0].resultUrl.startsWith(publicOrigin));
   assert.notEqual(body.generations[0].resultUrl, sentPhoto);
   assert.equal(starts, 1);
@@ -261,6 +266,7 @@ test("generation uses the already-stored OIDC Blob URL and stores the result wit
   assert.equal(saved.originalUrl, sentPhoto);
   assert.equal(saved.resultUrl, body.generations[0].resultUrl);
   assert.equal(saved.status, "done");
+  assert.equal(saved.quality, "medium");
 });
 
 test("a failed original Blob write cannot issue a paid GenAPI request or consume the trial", async (t) => {

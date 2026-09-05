@@ -5,6 +5,10 @@ import { useEffect, useRef, useState } from "react";
 import { useLocale } from "./locale-context";
 import { authHeaders } from "@/lib/client-auth";
 import { ClientStyle, ClientUser } from "./types";
+import {
+  ADMIN_TEST_IMAGE_QUALITY, DEFAULT_IMAGE_QUALITY, GPT_IMAGE_2_PRICE_ESTIMATES,
+  GPT_IMAGE_2_PRICE_DATE, GPT_IMAGE_2_PRICE_SOURCE, isImageQuality, type ImageQuality,
+} from "@/lib/generation/quality";
 
 type GenResult = {
   id: string;
@@ -14,6 +18,7 @@ type GenResult = {
   resultUrl: string | null;
   status: "processing" | "done" | "failed";
   provider: string;
+  quality?: ImageQuality;
   mode: "trial" | "credit" | "unlimited";
   demoConfig: { filter: string; tint: string; vignette: number; accent: string } | null;
   note: string | null;
@@ -105,8 +110,8 @@ async function downscaleImage(file: File): Promise<File | null> {
   }
 }
 
-export default function Studio({ user, styles, aiConfigured, isDemo, initialUnlimited }: {
-  user: ClientUser; styles: ClientStyle[]; aiConfigured: boolean; isDemo: boolean; initialUnlimited: boolean;
+export default function Studio({ user, styles, aiConfigured, isDemo, initialUnlimited, canChooseQuality }: {
+  user: ClientUser; styles: ClientStyle[]; aiConfigured: boolean; isDemo: boolean; initialUnlimited: boolean; canChooseQuality: boolean;
 }) {
   const { t, locale } = useLocale();
   const router = useRouter();
@@ -116,6 +121,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [styleId, setStyleId] = useState(styles[0]?.id ?? "");
+  const [quality, setQuality] = useState<ImageQuality>(canChooseQuality ? ADMIN_TEST_IMAGE_QUALITY : DEFAULT_IMAGE_QUALITY);
   const [dragOver, setDragOver] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [results, setResults] = useState<GenResult[]>([]);
@@ -133,6 +139,9 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
   }, []);
 
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+  useEffect(() => {
+    setQuality(canChooseQuality ? ADMIN_TEST_IMAGE_QUALITY : DEFAULT_IMAGE_QUALITY);
+  }, [canChooseQuality]);
 
   async function acceptFile(f: File | null) {
     if (!f) return;
@@ -179,6 +188,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
       fd.append("file", file);
       fd.append("scope", scope);
       if (scope === "single") fd.append("styleId", styleId);
+      if (canChooseQuality) fd.append("quality", quality);
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: authHeaders(),
@@ -339,6 +349,20 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
               {trialAvailable && !unlimited && <span className="chip" style={{ color: "var(--success)" }}>🎁 {t("studio_free_left")}</span>}
             </div>
 
+            {canChooseQuality && (
+              <div className="mt">
+                <label htmlFor="generation-quality" style={{ display: "block", fontWeight: 600, marginBottom: 8 }}>{t("studio_quality_label")}</label>
+                <select id="generation-quality" className="input" style={{ width: "100%" }} value={quality}
+                  disabled={generating} onChange={(e) => { if (isImageQuality(e.target.value)) setQuality(e.target.value); }}>
+                  <option value="medium">{t("studio_quality_medium_price", { price: GPT_IMAGE_2_PRICE_ESTIMATES.medium })}</option>
+                  <option value="high">{t("studio_quality_high_price", { price: GPT_IMAGE_2_PRICE_ESTIMATES.high })}</option>
+                </select>
+                <p className="small muted" style={{ marginTop: 8 }}>
+                  {t("studio_quality_estimate", { date: GPT_IMAGE_2_PRICE_DATE })}{" "}
+                  <a href={GPT_IMAGE_2_PRICE_SOURCE} target="_blank" rel="noopener noreferrer">{t("studio_quality_tariff")}</a>
+                </p>
+              </div>
+            )}
             {user.isAdmin && !isDemo && aiConfigured && (
               <p className="small muted mt">{t("studio_provider_billing_note")}</p>
             )}
@@ -360,7 +384,9 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
                   disabled={generating || !file}
                   onClick={() => generate("all")}
                 >
-                  {generating ? t("studio_processing") : t(user.isAdmin && !isDemo ? "studio_gen_all_paid" : "studio_gen_all")}
+                  {generating ? t("studio_processing") : canChooseQuality
+                    ? t("studio_gen_all_estimate", { count: styles.length, price: styles.length * GPT_IMAGE_2_PRICE_ESTIMATES[quality] })
+                    : t(user.isAdmin && !isDemo ? "studio_gen_all_paid" : "studio_gen_all")}
                 </button>
               </div>
             )}
@@ -389,7 +415,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
             <div>
               <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
                 <h2 style={{ fontSize: 18 }}>{t("studio_result")}</h2>
-                <span className="chip">{results[0].provider}</span>
+                <span className="chip">{results[0].provider}{isImageQuality(results[0].quality) ? ` · ${t(`studio_quality_${results[0].quality}`)}` : ""}</span>
               </div>
 
               {results[0].status === "done" && !isReal(results[0]) && (
@@ -487,6 +513,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
                       </div>
                       <div className="gen-meta">
                         <span style={{ fontWeight: 700 }}>{locale === "ru" ? st?.nameRu : st?.nameEn}</span>
+                        {isImageQuality(r.quality) && <span className="small muted">{t(`studio_quality_${r.quality}`)}</span>}
                         {isReal(r) && (
                           <button
                             className={"btn btn-sm " + (pubIds[r.id] ? "btn-ghost" : "")}
@@ -524,6 +551,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
                 <div className="grow">
                   <div style={{ fontWeight: 600 }}>{locale === "ru" ? h.styleName?.ru : h.styleName?.en}</div>
                   <div className="small muted">{new Date(h.createdAt).toLocaleString(locale === "ru" ? "ru-RU" : "en-US")}</div>
+                  {isImageQuality(h.quality) && <div className="small muted">{t(`studio_quality_${h.quality}`)}</div>}
                 </div>
                 <span className="chip">{h.mode === "trial" ? "🎁" : "✦"} {h.status}</span>
               </div>

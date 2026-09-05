@@ -26,11 +26,12 @@ beforeEach(async () => {
   });
 });
 after(() => cleanup());
-function request(scope = "single") {
+function request(scope = "single", quality?: string) {
   const body = new FormData();
   body.set("file", new File([PNG], "room.png", { type: "image/png" }));
   body.set("styleId", "style_modern");
   body.set("scope", scope);
+  if (quality !== undefined) body.set("quality", quality);
   return new NextRequest("https://app.example.test/api/generate", { method: "POST", headers: { "x-session-token": "test-session" }, body });
 }
 
@@ -182,4 +183,106 @@ test("422 validation details reach the UI and history, with no demo substitute, 
   const d = await store.db();
   assert.equal(d.users[0].trialUsed, false);
   assert.match(d.generations[0].error!, /invalid_parameter/);
+});
+
+
+test("a 50 RUB provider fixture accepts one medium image, keeps history and global defaults, and rejects the legacy high price", async (t) => {
+  await seed.setSetting("compatible_api_key", "sk_quality_test");
+  await seed.setSetting("test_unlimited", "0");
+  const before = JSON.stringify((await store.db()).settings);
+  let balance = 50; // Synthetic provider billing only. No real paid requests.
+  const qualities: string[] = [];
+  t.mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+    if (init?.method === "POST") {
+      assert.equal(url, "https://api.gen-api.ru/api/v1/networks/gpt-image-2");
+      const payload = JSON.parse(String(init.body));
+      qualities.push(payload.quality);
+      assert.equal(payload.image_size, "1024x1024");
+      assert.equal(payload.num_images, 1);
+      assert.equal(payload.output_format, "png");
+      const cost = payload.quality === "medium" ? 15 : 55;
+      if (balance < cost) return Response.json({ error: "Недостаточно средств" }, { status: 402 });
+      balance -= cost;
+      return Response.json({ request_id: 701 });
+    }
+    if (url.includes("/request/get/")) return Response.json({ status: "success", result: ["https://result.example.test/medium.png"] });
+    assert.equal(url, "https://result.example.test/medium.png");
+    return new Response(new Uint8Array(PNG), { headers: { "Content-Type": "image/png" } });
+  });
+  const medium = await (await generate.POST(request("single", "medium"))).json();
+  assert.equal(medium.generations[0].status, "done");
+  assert.equal(medium.generations[0].quality, "medium");
+  assert.equal(medium.isDemo, false);
+  assert.equal(balance, 35);
+  assert.equal((await store.db()).generations[0].quality, "medium");
+  const history = await import("../src/app/api/generations/route");
+  const req = new NextRequest("https://app.example.test/api/generations", { headers: { "x-session-token": "test-session" } });
+  const list = await (await history.GET(req)).json();
+  assert.equal(list.generations[0].quality, "medium");
+  assert.equal(list.generations[0].resultUrl, medium.generations[0].resultUrl);
+  // Omission must retain the old contract; a medium test must not silently change it.
+  const legacy = await (await generate.POST(request())).json();
+  assert.equal(legacy.generations[0].quality, "high");
+  assert.equal(legacy.generations[0].status, "failed");
+  assert.match(legacy.generations[0].note, /402/);
+  assert.deepEqual(qualities, ["medium", "high"]);
+  assert.equal(balance, 35);
+  assert.equal(JSON.stringify((await store.db()).settings), before);
+});
+
+test("empty and unknown quality values are rejected, not silently upgraded to high", async (t) => {
+  await seed.setSetting("compatible_api_key", "sk_quality_test");
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => { calls++; throw new Error("Must not call a paid provider"); });
+  for (const quality of ["", "low", "HIGH", "ultra", "null"]) {
+    const res = await generate.POST(request("single", quality));
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error, "bad_request");
+  }
+  assert.equal(calls, 0);
+  assert.equal((await store.db()).generations.length, 0);
+  assert.equal((await store.db()).users[0].trialUsed, false);
+});
+
+test("the quality test override requires a real admin, not just a client-side picker", async (t) => {
+  await seed.setSetting("compatible_api_key", "sk_quality_test");
+  await store.mutate((d) => { d.users[0].isAdmin = false; });
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => { calls++; throw new Error("Must not call a paid provider"); });
+  const res = await generate.POST(request("single", "medium"));
+  assert.equal(res.status, 403);
+  assert.equal((await res.json()).error, "quality_forbidden");
+  assert.equal(calls, 0);
+  assert.equal((await store.db()).generations.length, 0);
+});
+
+test("a stale quality picker cannot override another model or a deliberately selected demo mode", async (t) => {
+  await seed.setSetting("compatible_api_key", "sk_quality_test");
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => { calls++; throw new Error("Must not call a paid provider"); });
+  await seed.setSetting("compatible_model", "nano-banana-pro");
+  let res = await generate.POST(request("single", "medium"));
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).error, "quality_not_supported");
+  await seed.setSetting("generation_mode", "demo");
+  await seed.setSetting("generation_mode_explicit", "1");
+  res = await generate.POST(request("single", "medium"));
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).error, "quality_not_supported");
+  assert.equal(calls, 0);
+  assert.equal((await store.db()).generations.length, 0);
+});
+
+test("an explicit high choice is honored and a provider refusal never retries at a different quality", async (t) => {
+  await seed.setSetting("compatible_api_key", "sk_quality_test");
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async (_: string, init: RequestInit) => {
+    calls++;
+    assert.equal(JSON.parse(String(init.body)).quality, "high");
+    return Response.json({ error: "Недостаточно средств" }, { status: 402 });
+  });
+  const body = await (await generate.POST(request("single", "high"))).json();
+  assert.equal(body.generations[0].quality, "high");
+  assert.equal(body.generations[0].status, "failed");
+  assert.equal(calls, 1);
 });

@@ -57,13 +57,14 @@ export default function AdminPage({
         reward_vk: getSetting("reward_vk") || "1",
         reward_referral: getSetting("reward_referral") || "1",
         test_unlimited: getSetting("test_unlimited") || "1",
-        compatible_base_url: getSetting("compatible_base_url") || "",
-        compatible_api_key: getSetting("compatible_api_key") || "",
-        compatible_model: getSetting("compatible_model") || "google/nano-banana",
+        compatible_provider: getSetting("compatible_provider") || "genapi",
+        compatible_base_url: getSetting("compatible_base_url") || process.env.COMPATIBLE_BASE_URL || "https://api.gen-api.ru",
+        compatible_api_key: getSetting("compatible_api_key") || process.env.COMPATIBLE_API_KEY || "",
+        compatible_model: getSetting("compatible_model") || process.env.COMPATIBLE_MODEL || "gpt-image-2",
         compatible_configured: !!(
-          getSetting("compatible_base_url") &&
-          getSetting("compatible_api_key") &&
-          getSetting("compatible_model")
+          (getSetting("compatible_base_url") || process.env.COMPATIBLE_BASE_URL) &&
+          (getSetting("compatible_api_key") || process.env.COMPATIBLE_API_KEY) &&
+          (getSetting("compatible_model") || process.env.COMPATIBLE_MODEL)
         ),
       }}
       styles={styles}

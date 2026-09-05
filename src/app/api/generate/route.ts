@@ -106,12 +106,14 @@ export async function POST(req: NextRequest) {
         userId: user.id,
         styleId: st.id,
         originalId,
+        originalUrl,
         resultUrl: null,
         status: isDemo ? "done" : "processing",
         error: null,
         mode: consumed,
         provider: plan.provider,
         createdAt: now(),
+        published: false,
       };
       d.generations.push(g);
       generations.push(g);
@@ -188,6 +190,7 @@ export async function POST(req: NextRequest) {
       demoConfig,
       note,
       consumed,
+      published: false,
     });
   }
 

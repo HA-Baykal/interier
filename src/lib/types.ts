@@ -62,10 +62,25 @@ export type Generation = {
   userId: string;
   styleId: string;
   originalId: string;
+  /** Explicit original URL; fallback is `/api/uploads/{originalId}`. */
+  originalUrl?: string;
   resultUrl: string | null;
   status: "processing" | "done" | "failed";
   error: string | null;
   mode: "trial" | "credit" | "unlimited";
+  provider: string;
+  createdAt: number;
+  /** Whether the owner opted to showcase this design in the public gallery. */
+  published: boolean;
+};
+
+/** Public view model for the gallery (never exposes the owner identity). */
+export type GalleryItem = {
+  id: string;
+  styleSlug: string;
+  styleName: Record<Locale, string>;
+  originalUrl: string;
+  resultUrl: string;
   provider: string;
   createdAt: number;
 };

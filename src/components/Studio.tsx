@@ -17,6 +17,7 @@ type GenResult = {
   mode: "trial" | "credit" | "unlimited";
   demoConfig: { filter: string; tint: string; vignette: number; accent: string } | null;
   note: string | null;
+  published?: boolean;
 };
 
 // Render an image with the style's color-grade applied (demo mode).
@@ -73,6 +74,7 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
   const [history, setHistory] = useState<any[]>([]);
   const [unlimited, setUnlimited] = useState(false);
   const [compare, setCompare] = useState(true);
+  const [pubIds, setPubIds] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     fetch("/api/generations", { headers: authHeaders() })
@@ -160,6 +162,21 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
   // not a demo preview).
   function isReal(r: GenResult) {
     return !!r.resultUrl && r.resultUrl !== r.originalUrl;
+  }
+
+  // Opt-in publish to the public gallery (owners choose; stays private otherwise).
+  async function togglePublish(id: string) {
+    const next = !pubIds[id];
+    try {
+      const res = await fetch(`/api/generations/${id}/publish`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ published: next }),
+      });
+      if (res.ok) setPubIds((p) => ({ ...p, [id]: next }));
+    } catch {
+      /* ignore network errors */
+    }
   }
 
   return (
@@ -350,6 +367,15 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
               )}
               {results[0].note && <div className="small muted" style={{ marginTop: 8 }}>{results[0].note}</div>}
               <div className="gen-meta">
+                {isReal(results[0]) && (
+                  <button
+                    className={"btn btn-sm " + (pubIds[results[0].id] ? "btn-ghost" : "")}
+                    onClick={() => togglePublish(results[0].id)}
+                    disabled={generating}
+                  >
+                    {pubIds[results[0].id] ? t("gallery_unpublish") : t("gallery_publish")}
+                  </button>
+                )}
                 <a
                   className="btn btn-ghost btn-sm"
                   href={isReal(results[0]) ? results[0].resultUrl! : results[0].originalUrl}
@@ -387,6 +413,15 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
                       </div>
                       <div className="gen-meta">
                         <span style={{ fontWeight: 700 }}>{locale === "ru" ? st?.nameRu : st?.nameEn}</span>
+                        {isReal(r) && (
+                          <button
+                            className={"btn btn-sm " + (pubIds[r.id] ? "btn-ghost" : "")}
+                            onClick={() => togglePublish(r.id)}
+                            disabled={generating}
+                          >
+                            {pubIds[r.id] ? t("gallery_unpublish") : t("gallery_publish")}
+                          </button>
+                        )}
                         <a
                           className="btn btn-ghost btn-sm"
                           href={isReal(r) ? r.resultUrl! : r.originalUrl}

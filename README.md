@@ -35,6 +35,47 @@ npm run build
 npm start
 ```
 
+## Деплой
+
+> ⚠️ **Перед деплоем на serverless-платформы (Vercel).** Приложение хранит базу и
+> загруженные фото **в файлах на диске** (`data/app.json`, `data/uploads/`).
+> У Vercel файловая система **эфимерна** (не сохраняется между запросами), поэтому
+> база/фото будут стираться. Для Vercel нужно переносить данные в облачную БД и
+> хранилище (async-переработка `src/lib/db.ts`) — это отдельная задача.
+>
+> **Сейчас проще и надёжнее деплоить на хостинг с постоянным диском**
+> (Render / Railway / VPS), где `next start` работает как обычный Node-процесс
+> и файловая база сохраняется.
+
+### Render (бесплатный тариф) — рекомендация
+
+1. Загрузите репозиторий в GitHub (рабочая ветка).
+2. В [Render](https://render.com) → **New → Web Service** → подключите репозиторий.
+3. **Build command**: `npm install && npm run build`
+4. **Start command**: `npm start`
+5. В **Environment** добавьте переменные (пример в `.env.example`):
+   - `SESSION_SECRET` — длинная случайная строка
+   - `DATABASE_PATH`=`./data/app.json`
+   - `GENERATION_MODE`=`compatible`
+   - `COMPATIBLE_PROVIDER`=`genapi`
+   - `COMPATIBLE_BASE_URL`=`https://api.gen-api.ru`
+   - `COMPATIBLE_API_KEY`=`<ваш ключ gen-api.ru>`
+   - `COMPATIBLE_MODEL`=`gpt-image-2`
+   - `ADMIN_EMAIL` / `ADMIN_PASSWORD` (по умолчанию `admin@interier.ru` / `admin123`)
+6. При желании добавьте **Persistent Disk** (несколько сотен МБ) в каталог `data/`.
+
+### VPS (Hetzner и т.п.)
+
+```bash
+git clone https://github.com/HA-Baykal/interier.git && cd interier
+npm ci
+npm run build
+# настройте .env (или экспортируйте переменные)
+NODE_ENV=production npm start   # слушает 0.0.0.0:3000
+```
+
+Поставьте за reverse-proxy (Caddy/nginx) + `pm2` для авто-перезапуска.
+
 ## Админ-аккаунт (тестовый)
 
 - Логин: `admin@interier.ru`
@@ -46,26 +87,43 @@ npm start
 ## Подключение реальной ИИ-генерации (оплата из России)
 
 Прямые зарубежные сервисы (Replicate, OpenAI, Together, fal.ai) **не принимают
-российские карты** (Stripe отклоняет карты с РФ-бином). Поэтому для России
-используем **путь №1 — российский API-агрегатор** с оплатой в рублях:
-**provod.ai / GenAPI**. Они дают доступ к моделям-редакторам
-(`google/nano-banana`, `openai/gpt-image-2`), которые перерисовывают интерьер,
-**сохраняя стены, окна, двери и планировку** — ровно то, что нужно для
-профессионального результата.
+российские карты**. Поэтому для России используем **путь №1 — российский
+API-агрегатор** с оплатой в рублях. Коннектор поддерживает **два провайдера**
+(переключаются в `Настройки` → «Агрегатор (путь №1)» → «Провайдер»):
+
+| Провайдер | Base URL | Модель (пример) |
+|-----------|----------|-----------------|
+| **GenAPI** (по умолчанию) | `https://api.gen-api.ru` | `gpt-image-2`, `nano-banana-pro`, `nano-banana` |
+| **provod.ai** (OpenAI-совместимый) | `https://api.provod.ai/v1` | `google/nano-banana-pro`, `openai/gpt-image-2` |
+
+GenAPI — **нативный REST**: `POST /api/v1/networks/{model}` с фото как data-URI,
+затем опрос `GET /api/v1/request/get/{request_id}` до `status: success`.
+Если в модели осталось префикс-имя (`google/nano-banana`), коннектор автоматически
+приводит его к GenAPI-формату (`nano-banana`).
 
 Настройки задаются в админ-панели (`/admin` → Настройки → блок «Агрегатор»)
 или в `.env.local`:
 
 | Поле | Что вписать |
 |------|-------------|
-| База | `https://api.provod.ai/v1` |
-| Модель | `google/nano-banana` (лучше всего держит планировку) |
-| Ключ | твой API-ключ с рублёвым балансом |
+| COMPATIBLE_PROVIDER | `genapi` или `openai-compatible` |
+| COMPATIBLE_BASE_URL | `https://api.gen-api.ru` (genapi) |
+| COMPATIBLE_MODEL | `gpt-image-2` (лучше всего держит планировку) |
+| COMPATIBLE_API_KEY | твой API-ключ с рублёвым балансом |
 
 Промпт намеренно требует «не менять стены/окна/двери/планировку», менять только
 интерьер. Логика в `src/lib/generation/provider.ts` и `src/lib/generation/edit-compatible.ts`.
 
 Также доступен legacy-режим `replicate` (коннектор `src/lib/generation/replicate.ts`).
+
+## Галерея и приватность
+
+- **Галерея** (`/gallery`) — публичная витрина работ. Все генерации пользователей
+  **по умолчанию приватные** (видны только владельцу в «Истории»).
+- Пользователь может **сам решить** выложить свой дизайн в общую галерею
+  (кнопка «Выложить в галерею» в студии или личном кабинете) и в любой момент
+  убрать его. Личность владельца в галерее не раскрывается.
+- При первом запуске галерея наполняется примерами от админа (превью стилей).
 
 ## Структура
 

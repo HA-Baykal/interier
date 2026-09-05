@@ -158,9 +158,10 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   reward_referral: "1",
   generation_mode: "demo",
   test_unlimited: "1", // unlimited generations while testing
-  compatible_base_url: "",
+  compatible_provider: "genapi", // genapi | openai-compatible
+  compatible_base_url: "https://api.gen-api.ru",
   compatible_api_key: "",
-  compatible_model: "google/nano-banana",
+  compatible_model: "gpt-image-2",
 };
 
 /**

@@ -1,6 +1,6 @@
 import { db, mutate, uid, now } from "./db";
 import { hashPassword, makeReferralCode } from "./auth";
-import { getSetting, setSetting } from "./config";
+import { getSetting, setSetting, activeStyles } from "./config";
 
 /**
  * Seeds a default admin account for the testing phase.
@@ -37,4 +37,37 @@ export function ensureAdmin() {
   });
 
   setSetting("boot_admin", "1");
+}
+
+/**
+ * Seeds a small set of published "example works" so the public gallery is not
+ * empty on first launch. Uses each active style's marketing preview image as a
+ * showcase design. Idempotent via the boot_gallery setting.
+ */
+export function ensureGalleryExamples() {
+  if (getSetting("boot_gallery") === "1") return;
+  const styles = activeStyles().filter((s) => s.preview);
+  if (styles.length > 0) {
+    mutate((d) => {
+      for (const s of styles) {
+        // Skip if we've already seeded an example for this style.
+        if (d.generations.some((g) => g.styleId === s.id && g.originalId === "__example__")) continue;
+        d.generations.push({
+          id: uid("gen"),
+          userId: "__example__",
+          styleId: s.id,
+          originalId: "__example__",
+          originalUrl: s.preview,
+          resultUrl: s.preview,
+          status: "done",
+          error: null,
+          mode: "unlimited",
+          provider: "Пример",
+          createdAt: now(),
+          published: true,
+        });
+      }
+    });
+  }
+  setSetting("boot_gallery", "1");
 }

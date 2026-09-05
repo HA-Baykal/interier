@@ -13,6 +13,7 @@ type Settings = {
   reward_vk: string;
   reward_referral: string;
   test_unlimited: string;
+  compatible_provider: string;
   compatible_base_url: string;
   compatible_api_key: string;
   compatible_model: string;
@@ -170,10 +171,22 @@ export default function Admin({
             )}
           </div>
           <p className="muted small" style={{ marginTop: 6 }}>{t("admin_compatible_hint")}</p>
+          <div className="field mt">
+            <label>{t("admin_compatible_provider")}</label>
+            <select className="input" value={form.compatible_provider} onChange={field("compatible_provider")}>
+              <option value="genapi">GenAPI (gen-api.ru)</option>
+              <option value="openai-compatible">OpenAI-совместимый (provod.ai)</option>
+            </select>
+          </div>
+          <p className="muted small" style={{ marginTop: 6 }}>
+            {form.compatible_provider === "genapi"
+              ? "GenAPI: ID модели = gpt-image-2 (меняет только стиль, сохраняет планировку) либо nano-banana-pro / nano-banana."
+              : "provod.ai: модель = google/nano-banana-pro либо openai/gpt-image-2."}
+          </p>
           <div className="row" style={{ flexWrap: "wrap", gap: 16, marginTop: 10 }}>
             <div className="field" style={{ flex: 2, minWidth: 240 }}>
               <label>{t("admin_compatible_base")}</label>
-              <input className="input" placeholder="https://api.provod.ai/v1" value={form.compatible_base_url} onChange={field("compatible_base_url")} />
+              <input className="input" placeholder="https://api.gen-api.ru" value={form.compatible_base_url} onChange={field("compatible_base_url")} />
             </div>
             <div className="field" style={{ flex: 1, minWidth: 200 }}>
               <label>{t("admin_compatible_model")}</label>
@@ -184,7 +197,13 @@ export default function Admin({
             <label>{t("admin_compatible_key")}</label>
             <input className="input" type="password" placeholder="••••••••" value={form.compatible_api_key} onChange={field("compatible_api_key")} />
           </div>
-          <div className="small muted">→ {t("admin_compatible_model_list")}: <code>google/nano-banana</code>, <code>openai/gpt-image-2</code></div>
+          <div className="small muted">→ {t("admin_compatible_model_list")}: 
+            {form.compatible_provider === "genapi" ? (
+              <><code>gpt-image-2</code>, <code>nano-banana-pro</code>, <code>nano-banana</code></>
+            ) : (
+              <><code>google/nano-banana-pro</code>, <code>openai/gpt-image-2</code></>
+            )}
+          </div>
         </div>
 
         <div className="row" style={{ marginTop: 16 }}>

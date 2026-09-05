@@ -24,11 +24,12 @@ export async function GET(req: NextRequest) {
         styleId: g.styleId,
         styleSlug: st?.slug ?? "unknown",
         styleName: st ? st.name : { ru: "Стиль", en: "Style" },
-        originalUrl: `/api/uploads/${g.originalId}`,
-        resultUrl: g.resultUrl ? `/api/uploads/${g.originalId}` : null,
+        originalUrl: g.originalUrl ?? `/api/uploads/${g.originalId}`,
+        resultUrl: g.resultUrl,
         status: g.status,
         provider: g.provider,
         mode: g.mode,
+        published: !!g.published,
         createdAt: g.createdAt,
       };
     });

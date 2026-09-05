@@ -13,7 +13,8 @@ export async function POST(req: NextRequest) {
   // Re-seed styles / packages / settings and re-create the admin account.
   const { ensureSeeded } = await import("@/lib/config");
   ensureSeeded();
-  const { ensureAdmin } = await import("@/lib/bootstrap");
+  const { ensureAdmin, ensureGalleryExamples } = await import("@/lib/bootstrap");
   ensureAdmin();
+  ensureGalleryExamples();
   return NextResponse.json({ ok: true });
 }

@@ -20,9 +20,10 @@ export async function GET(req: NextRequest) {
       reward_vk: getSetting("reward_vk") || "1",
       reward_referral: getSetting("reward_referral") || "1",
       test_unlimited: getSetting("test_unlimited") || "1",
-      compatible_base_url: getSetting("compatible_base_url") || process.env.COMPATIBLE_BASE_URL || "",
+      compatible_provider: getSetting("compatible_provider") || "genapi",
+      compatible_base_url: getSetting("compatible_base_url") || process.env.COMPATIBLE_BASE_URL || "https://api.gen-api.ru",
       compatible_api_key: getSetting("compatible_api_key") || process.env.COMPATIBLE_API_KEY || "",
-      compatible_model: getSetting("compatible_model") || process.env.COMPATIBLE_MODEL || "google/nano-banana",
+      compatible_model: getSetting("compatible_model") || process.env.COMPATIBLE_MODEL || "gpt-image-2",
       compatible_configured: !!(
         (getSetting("compatible_base_url") || process.env.COMPATIBLE_BASE_URL) &&
         (getSetting("compatible_api_key") || process.env.COMPATIBLE_API_KEY) &&
@@ -50,6 +51,7 @@ const ALLOWED = [
   "reward_vk",
   "reward_referral",
   "test_unlimited",
+  "compatible_provider",
   "compatible_base_url",
   "compatible_api_key",
   "compatible_model",

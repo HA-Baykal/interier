@@ -68,6 +68,7 @@ export default function AppShell({
       label: t(locale, "nav_studio"),
       show: !!user,
     },
+    { href: "/gallery", label: t(locale, "nav_gallery"), show: true },
     { href: "/#pricing", label: t(locale, "nav_pricing"), show: true },
     {
       href: "/account",

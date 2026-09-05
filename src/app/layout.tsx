@@ -5,10 +5,11 @@ import { getSessionUser } from "@/lib/auth";
 import { getLocale } from "@/lib/locale";
 import { ensureSeeded } from "@/lib/config";
 import { referralCount, grantedRewards } from "@/lib/billing";
-import { ensureAdmin } from "@/lib/bootstrap";
+import { ensureAdmin, ensureGalleryExamples } from "@/lib/bootstrap";
 
 ensureSeeded();
 ensureAdmin();
+ensureGalleryExamples();
 
 export const metadata: Metadata = {
   title: "Interier — Ремонт без дизайнера",

@@ -13,6 +13,7 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
   const [copied, setCopied] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [history, setHistory] = useState<any[]>([]);
+  const [pubIds, setPubIds] = useState<Record<string, boolean>>({});
   const [refLink, setRefLink] = useState("");
 
   useEffect(() => {
@@ -21,7 +22,15 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
       .then((d) => d.user && setUser(d.user));
     fetch("/api/generations", { headers: authHeaders() })
       .then((r) => r.json())
-      .then((d) => setHistory(d.generations || []));
+      .then((d) => {
+        const list = d.generations || [];
+        setHistory(list);
+        const map: Record<string, boolean> = {};
+        list.forEach((g: any) => {
+          if (g.id) map[g.id] = !!g.published;
+        });
+        setPubIds(map);
+      });
   }, []);
 
   useEffect(() => {
@@ -76,6 +85,20 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
       router.refresh();
     } else if (data.already) {
       setToast(t("rewards_connected"));
+    }
+  }
+
+  async function togglePublish(id: string) {
+    const next = !pubIds[id];
+    try {
+      const res = await fetch(`/api/generations/${id}/publish`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ published: next }),
+      });
+      if (res.ok) setPubIds((p) => ({ ...p, [id]: next }));
+    } catch {
+      /* ignore */
     }
   }
 
@@ -158,7 +181,16 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
                     {new Date(h.createdAt).toLocaleString(locale === "ru" ? "ru-RU" : "en-US")} · {h.mode}
                   </div>
                 </div>
-                <span className="chip">{h.status}</span>
+                {h.resultUrl && h.status === "done" ? (
+                  <button
+                    className={"btn btn-sm " + (pubIds[h.id] ? "btn-ghost" : "")}
+                    onClick={() => togglePublish(h.id)}
+                  >
+                    {pubIds[h.id] ? t("gallery_unpublish") : t("gallery_publish")}
+                  </button>
+                ) : (
+                  <span className="chip">{h.status}</span>
+                )}
               </div>
             ))}
           </div>

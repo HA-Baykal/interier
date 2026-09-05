@@ -46,6 +46,7 @@ export async function GET() {
       ok: storage.database !== "memory",
       storage: storage.database,
       uploads: storage.uploads,
+      blobAuthentication: storage.blobAuthentication,
       adminEmail: email,
       credentialsFromEnv: fromEnv,
       configuredAccountExists: !!configured,

@@ -17,6 +17,8 @@ export function safeErrorMessage(error: unknown, secrets: string[] = []): string
   }
   return message
     .replace(/Bearer\s+[^\s"',;]+/gi, "Bearer [redacted]")
+    // OIDC credentials may come from request context, not process.env.
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "[redacted]")
     .replace(/data:image\/[^\s"']+/gi, "[image]")
     .replace(/https?:\/\/[^\s"'<>]+/gi, "[URL]")
     .replace(/[\x00-\x1f\x7f]/g, " ")

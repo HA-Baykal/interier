@@ -53,16 +53,25 @@ PR, merge и продвижение в Production — только после о
 2. Выберите доступ **Public**. Текущий коннектор сохраняет публичные URL и не обслуживает Private Blob.
 3. Назовите хранилище, например `interier-photos`, выберите регион и создайте его.
 4. Подключите к проекту **interier**, окружения **Preview** и **Production**.
-5. Оставьте стандартное имя переменной / стандартный префикс. В Environment Variables должно появиться:
+5. Оставьте стандартные имена переменных. При современном подключении в Environment Variables появятся:
 
    ```text
-   BLOB_READ_WRITE_TOKEN
+   BLOB_STORE_ID
+   BLOB_WEBHOOK_PUBLIC_KEY
    ```
 
-   Если при подключении появились только настройки OIDC / `BLOB_STORE_ID`, добавьте read/write token
-   из страницы Blob store в `BLOB_READ_WRITE_TOKEN`: этот коннектор использует именно его.
+   **Это нормальное подключение. Создавать `BLOB_READ_WRITE_TOKEN` дополнительно не нужно.**
+   Приложение использует `BLOB_STORE_ID`, а Vercel SDK сам получает и обновляет временные
+   OIDC-учётные данные из окружения / контекста запроса. `VERCEL_OIDC_TOKEN` не нужно
+   создавать вручную, копировать или пересылать. `BLOB_WEBHOOK_PUBLIC_KEY` — ключ проверки
+   webhook-подписей, не токен для загрузки фото.
 
-6. Убедитесь, что переменная доступна **Preview**, а не только Production.
+6. Если уже используется старый способ с `BLOB_READ_WRITE_TOKEN`, он тоже поддерживается.
+   Если указаны оба варианта, явный read/write token сохраняет прежний приоритет.
+   Для локальной разработки можно использовать read/write token либо `vercel env pull`
+   с подключённым Blob store и управляемыми OIDC-учётными данными.
+7. Убедитесь, что подключение / переменные доступны **Preview**, а не только Production.
+   Само наличие `BLOB_STORE_ID` показывает настройку, но запись проверяется отдельно кнопкой диагностики.
 
 В Blob сохраняются **обе** картинки: оригинал и скачанный у GenAPI результат.
 Временная ссылка провайдера не используется как постоянное хранилище.
@@ -76,6 +85,12 @@ Preview пишет в свой подкаталог `uploads/preview/...`, Produ
 
 В **Settings → Environment Variables** добавьте значения для **Preview**.
 При необходимости сразу задайте те же переменные для Production, но это не обновит код на `main`.
+
+Если четыре `COMPATIBLE_*` уже есть, но под ними написано только **Production**,
+новые секреты создавать не надо: у каждой строки откройте **⋯ → Edit**, в **Environments**
+добавьте галочку **Preview**, оставьте **Production** включённым и нажмите **Save**.
+Значения не меняйте и не раскрывайте. Затем выполните Redeploy **ветки сессии**.
+
 
 | Переменная | Значение |
 | --- | --- |
@@ -124,6 +139,7 @@ Preview пишет в свой подкаталог `uploads/preview/...`, Produ
   "ok": true,
   "storage": "redis",
   "uploads": "blob",
+  "blobAuthentication": "oidc",
   "configuredAccountExists": true,
   "configuredAccountIsAdmin": true,
   "ephemeralStorage": false,
@@ -132,6 +148,7 @@ Preview пишет в свой подкаталог `uploads/preview/...`, Produ
 }
 ```
 
+`blobAuthentication` — `oidc` для `BLOB_STORE_ID` или `token` для старого read/write token.
 `databaseKey` должен содержать `preview`, `commit` — SHA проверяемой версии.
 `credentialsFromEnv: true` означает, что логин/пароль берутся из ваших ADMIN-переменных.
 
@@ -172,7 +189,9 @@ Preview пишет в свой подкаталог `uploads/preview/...`, Produ
 | Симптом | Проверка |
 | --- | --- |
 | `storage: memory` / `database_not_configured` | REST URL + read/write token, окружение Preview, затем Redeploy |
-| `uploads: unconfigured` / `blob_not_configured` | `BLOB_READ_WRITE_TOKEN` именно в Preview, Public Blob, затем Redeploy |
+| `uploads: unconfigured` / `blob_not_configured` | `BLOB_STORE_ID` (или старый `BLOB_READ_WRITE_TOKEN`) именно в Preview, Public Blob, затем Redeploy |
+| Старый деплой требует `BLOB_READ_WRITE_TOKEN`, хотя есть `BLOB_STORE_ID` | Откройте последний деплой ветки с поддержкой OIDC, не старую ссылку |
+| OIDC environment / credentials error | Blob → Projects → подключение к правильному проекту и Preview. Временный токен вручную не вставляйте |
 | Redis 401/403 | Неверный / read-only токен либо URL от другой базы. Не сбрасывайте базу |
 | Blob access / store error | Токен от правильного store, Public access, тариф/лимиты |
 | GenAPI 401/403 | Проверьте ключ в GenAPI и заново сохраните его в админке |

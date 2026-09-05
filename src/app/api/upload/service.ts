@@ -1,8 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { uid } from "@/lib/db";
-import { cleanConnectionValue } from "@/lib/env";
-import { assertDurableUploads, blobPrefix } from "@/lib/storage-config";
+import { assertDurableUploads, blobPrefix, blobAuthentication, blobAuthOptions } from "@/lib/storage-config";
 
 const UPLOAD_DIR = path.join(process.cwd(), "data", "uploads");
 const MIME_MAP: Record<string, string> = {
@@ -20,7 +19,7 @@ export function imageMime(buffer: Buffer): string | null {
 }
 
 export function isBlobStorage(): boolean {
-  return !!cleanConnectionValue(process.env.BLOB_READ_WRITE_TOKEN);
+  return blobAuthentication() !== "unconfigured";
 }
 
 export function uploadStorageMode(): "blob" | "file" | "inline" {
@@ -41,7 +40,7 @@ export async function saveUpload(buffer: Buffer, mime: string): Promise<{ id: st
       access: "public",
       addRandomSuffix: false,
       contentType: mime,
-      token: cleanConnectionValue(process.env.BLOB_READ_WRITE_TOKEN),
+      ...blobAuthOptions(),
       abortSignal: AbortSignal.timeout(25_000),
     });
     return { id, ext, url };

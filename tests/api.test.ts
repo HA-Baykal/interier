@@ -113,3 +113,19 @@ test("Vercel refuses ephemeral accounts/settings/generation and explains missing
   const admin = await import("../src/lib/admin-settings");
   await assert.rejects(admin.updateAdminSettings({ compatible_api_key: "dont-lose-me" }), /UPSTASH_REDIS_REST/);
 });
+
+
+test("bootstrap recognizes a linked OIDC Blob store without disclosing runtime credentials", async (t) => {
+  process.env.BLOB_STORE_ID = "store_linked";
+  process.env.VERCEL_OIDC_TOKEN = "runtime-secret-must-not-be-returned";
+  t.after(() => { delete process.env.BLOB_STORE_ID; delete process.env.VERCEL_OIDC_TOKEN; });
+  const bootstrap = await import("../src/app/api/admin/bootstrap/route");
+  const res = await bootstrap.GET();
+  assert.equal(res.status, 200);
+  const text = await res.text();
+  const body = JSON.parse(text);
+  assert.equal(body.uploads, "blob");
+  assert.equal(body.blobAuthentication, "oidc");
+  assert.ok(!body.missingEnvironment.some((name: string) => name.startsWith("BLOB_")));
+  assert.ok(!text.includes("runtime-secret-must-not-be-returned"));
+});

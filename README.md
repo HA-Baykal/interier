@@ -50,7 +50,10 @@ npm start
 1. В Storage подключите **Upstash Redis** и **Public Vercel Blob** к проекту.
 2. Проверьте переменные **Preview**, а не только Production:
    `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` (или полная legacy-пара
-   `KV_REST_API_URL` + `KV_REST_API_TOKEN`) и `BLOB_READ_WRITE_TOKEN`.
+   `KV_REST_API_URL` + `KV_REST_API_TOKEN`). Для Blob — `BLOB_STORE_ID` (современное
+   подключение с управляемым OIDC) **или** прежний `BLOB_READ_WRITE_TOKEN`.
+   При наличии `BLOB_STORE_ID` создавать новый секретный токен не нужно: SDK сам
+   получает и обновляет временные учётные данные Vercel.
 3. Задайте собственные `ADMIN_EMAIL` / `ADMIN_PASSWORD`, а не публичный тестовый пароль.
    Настройте GenAPI через `COMPATIBLE_*` либо сохраните ключ в админке после входа.
 4. Выполните **Redeploy последнего коммита проверяемой ветки**. Для генерации задан

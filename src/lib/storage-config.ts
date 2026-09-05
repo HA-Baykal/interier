@@ -33,8 +33,28 @@ export function blobPrefix(env: Env = process.env): string {
   return env.VERCEL_ENV === "preview" ? `uploads/preview/${previewBranch(env)}` : "uploads";
 }
 
+/**
+ * Keep existing explicit read/write tokens working. A linked BLOB_STORE_ID alone
+ * uses Vercel's managed OIDC credentials (from the runtime/request context).
+ * Never read/cache/pass oidcToken here: the SDK must refresh it per operation.
+ */
+export function blobAuthOptions(env: Env = process.env): { token?: string; storeId?: string } {
+  const token = cleanConnectionValue(env.BLOB_READ_WRITE_TOKEN);
+  if (token) return { token };
+  const storeId = cleanConnectionValue(env.BLOB_STORE_ID);
+  return storeId ? { storeId } : {};
+}
+
+/** Configuration only, NOT a claim that a live write has succeeded. */
+export function blobAuthentication(env: Env = process.env): "token" | "oidc" | "unconfigured" {
+  const options = blobAuthOptions(env);
+  return options.token ? "token" : options.storeId ? "oidc" : "unconfigured";
+}
+
 export function missingStorageEnvironment(env: Env = process.env): string[] {
-  return [...redisConnection(env).missing, ...(!cleanConnectionValue(env.BLOB_READ_WRITE_TOKEN) ? ["BLOB_READ_WRITE_TOKEN"] : [])];
+  const missingBlob = blobAuthentication(env) === "unconfigured"
+    ? [isVercel(env) ? "BLOB_STORE_ID" : "BLOB_READ_WRITE_TOKEN"] : [];
+  return [...redisConnection(env).missing, ...missingBlob];
 }
 
 export function assertDurableDatabase(): void {
@@ -45,7 +65,7 @@ export function assertDurableDatabase(): void {
 }
 
 export function assertDurableUploads(): void {
-  if (isVercel() && !cleanConnectionValue(process.env.BLOB_READ_WRITE_TOKEN)) {
-    throw new RequestError("blob_not_configured", "Постоянное хранилище фото не подключено. Подключите публичный Vercel Blob (BLOB_READ_WRITE_TOKEN) и выполните Redeploy.", 503);
+  if (isVercel() && blobAuthentication() === "unconfigured") {
+    throw new RequestError("blob_not_configured", "Постоянное хранилище фото не подключено. Подключите публичный Vercel Blob к проекту (BLOB_STORE_ID или BLOB_READ_WRITE_TOKEN) и выполните Redeploy.", 503);
   }
 }

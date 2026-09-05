@@ -3,23 +3,8 @@ import type { Metadata, Viewport } from "next";
 import AppShell from "@/components/AppShell";
 import { getSessionUser } from "@/lib/auth";
 import { getLocale } from "@/lib/locale";
-import { ensureSeeded } from "@/lib/config";
 import { referralCount, grantedRewards } from "@/lib/billing";
-import { ensureAdmin, ensureGalleryExamples } from "@/lib/bootstrap";
-
-// Seed once per server instance (idempotent). Top-level promise ensures the
-// store is ready before the first render without duplicating work each request.
-let bootPromise: Promise<void> | null = null;
-function ensureBoot(): Promise<void> {
-  if (!bootPromise) {
-    bootPromise = (async () => {
-      await ensureSeeded();
-      await ensureAdmin();
-      await ensureGalleryExamples();
-    })();
-  }
-  return bootPromise;
-}
+import { ensureBootSafe } from "@/lib/boot";
 
 export const metadata: Metadata = {
   title: "Interier — Ремонт без дизайнера",
@@ -40,7 +25,7 @@ export const viewport: Viewport = {
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  await ensureBoot();
+  await ensureBootSafe();
   const user = await getSessionUser();
   const locale = getLocale();
   return (

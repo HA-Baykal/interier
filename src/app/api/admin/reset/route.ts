@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
   const { ensureSeeded } = await import("@/lib/config");
   await ensureSeeded();
   const { ensureAdmin, ensureGalleryExamples } = await import("@/lib/bootstrap");
-  await ensureAdmin();
+  const admin = await ensureAdmin();
   await ensureGalleryExamples();
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, admin: admin.email });
 }

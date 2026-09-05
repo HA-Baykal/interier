@@ -129,3 +129,33 @@ test("bootstrap recognizes a linked OIDC Blob store without disclosing runtime c
   assert.ok(!body.missingEnvironment.some((name: string) => name.startsWith("BLOB_")));
   assert.ok(!text.includes("runtime-secret-must-not-be-returned"));
 });
+
+
+test("admin probe reports an unverified connection timeout, its region and healthy storage without leaking a key", async (t) => {
+  process.env.VERCEL_REGION = "iad1";
+  t.after(() => { delete process.env.VERCEL_REGION; });
+  const key = "sk_private_network_test";
+  await seed.setSetting("compatible_api_key", key);
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit) => {
+    calls++;
+    assert.equal(url, "https://api.gen-api.ru/api/v1/user");
+    assert.equal(init.method, "GET");
+    throw new TypeError(`fetch failed with ${key}`, { cause: Object.assign(new Error(key), { code: "UND_ERR_CONNECT_TIMEOUT" }) });
+  });
+  const req = new NextRequest("https://app.example.test/api/admin/genstatus?probe=1", { headers: { "x-session-token": "test-session" } });
+  const res = await genstatus.GET(req);
+  const text = await res.text();
+  const data = JSON.parse(text);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("cache-control")!, /no-store/);
+  assert.equal(data.deployment.region, "iad1");
+  assert.equal(data.probe.code, "timeout");
+  assert.equal(data.probe.keyAccepted, null);
+  assert.equal(data.probe.networkCode, "UND_ERR_CONNECT_TIMEOUT");
+  assert.equal(data.probe.attempts, 2);
+  assert.equal(calls, 2);
+  assert.equal(data.storageChecks.database.ok, true);
+  assert.equal(data.storageChecks.uploads.ok, true);
+  assert.ok(!text.includes(key));
+});

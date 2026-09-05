@@ -75,6 +75,7 @@ export default function Admin({
   async function checkGeneration() {
     setProbing(true);
     setError(null);
+    setDiagnostics(null);
     try {
       const res = await fetch("/api/admin/genstatus?probe=1", { headers: authHeaders(), cache: "no-store" });
       const data = await res.json().catch(() => ({}));
@@ -251,7 +252,7 @@ export default function Admin({
         </div>
         <p className="small muted" style={{ marginTop: 12 }}>Проверяется сохранённый ключ и запись/чтение в хранилищах. Сначала сохраните изменения. Платная генерация не запускается; временные тестовые данные удаляются.</p>
         <button className="btn btn-sm" style={{ marginTop: 12 }} onClick={checkGeneration} disabled={probing || saving}>
-          {probing ? "Проверяем…" : "Проверить ИИ и хранилища"}
+          {probing ? "Проверяем… (до минуты)" : "Проверить ИИ и хранилища"}
         </button>
         {diagnostics && <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", marginTop: 12 }} role="status">{diagnostics}</pre>}
       </div>

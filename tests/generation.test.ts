@@ -48,8 +48,8 @@ test("probe uses only read-only /user; no secret, email or exact balance escapes
   t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit) => {
     count++;
     assert.equal(url, "https://api.gen-api.ru/api/v1/user");
-    assert.equal(init.method, undefined);
-    return Response.json({ balance: 250, email: "private@example.test", api_key: cfg.apiKey });
+    assert.equal(init.method, "GET");
+    return Response.json({ balance: 12345.6789, email: "private@example.test", api_key: cfg.apiKey });
   });
   const result = await diagnostics.probeCompatible(cfg);
   assert.equal(result.keyAccepted, true);
@@ -57,12 +57,12 @@ test("probe uses only read-only /user; no secret, email or exact balance escapes
   assert.equal(count, 1);
   assert.ok(!JSON.stringify(result).includes("private@example.test"));
   assert.ok(!JSON.stringify(result).includes(cfg.apiKey));
-  assert.ok(!JSON.stringify(result).includes("250"));
+  assert.ok(!JSON.stringify(result).includes("12345.6789"));
 });
 
 test("probe does not call HTML / a random 200 response a valid key", async (t) => {
   t.mock.method(globalThis, "fetch", async () => new Response("<html>Sign in</html>"));
-  assert.equal((await diagnostics.probeCompatible(cfg)).keyAccepted, false);
+  assert.equal((await diagnostics.probeCompatible(cfg)).keyAccepted, null);
 });
 
 test("probe rejects 401 and does not echo the upstream error body", async (t) => {
@@ -71,4 +71,16 @@ test("probe rejects 401 and does not echo the upstream error body", async (t) =>
   assert.equal(result.ok, false);
   assert.equal(result.httpStatus, 401);
   assert.ok(!JSON.stringify(result).includes(cfg.apiKey));
+});
+
+test("a timed-out paid generation start is never automatically repeated", async (t) => {
+  let starts = 0;
+  t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit) => {
+    assert.equal(url, "https://api.gen-api.ru/api/v1/networks/gpt-image-2");
+    assert.equal(init.method, "POST");
+    starts++;
+    throw new DOMException("The operation timed out", "TimeoutError");
+  });
+  await assert.rejects(connector.runCompatibleEdit(cfg, PNG, "image/png", "test"), /timed out/);
+  assert.equal(starts, 1);
 });

@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     try { const url = new URL(cfg.baseUrl); baseUrl = `${url.origin}${url.pathname}`; } catch { /* reported by probe */ }
     const probeRequested = req.nextUrl.searchParams.get("probe") === "1";
     const [probe, storageChecks] = probeRequested ? await Promise.all([
-      cfg.apiKey ? probeCompatible(cfg) : Promise.resolve({ ok: false, keyAccepted: false, message: "API-ключ не задан." }),
+      probeCompatible(cfg),
       probeStorage(),
     ]) : [null, null];
     return NextResponse.json({
@@ -28,7 +28,11 @@ export async function GET(req: NextRequest) {
       keyConfigured: !!cfg.apiKey, keySource: settings.keySource,
       storage: storageStatus(),
       storageChecks,
-      deployment: { environment: process.env.VERCEL_ENV || "local", commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) || null },
+      deployment: {
+        environment: process.env.VERCEL_ENV || "local",
+        region: process.env.VERCEL_REGION || null,
+        commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) || null,
+      },
       probe,
     }, { headers });
   } catch (e) {

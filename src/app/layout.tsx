@@ -7,9 +7,19 @@ import { ensureSeeded } from "@/lib/config";
 import { referralCount, grantedRewards } from "@/lib/billing";
 import { ensureAdmin, ensureGalleryExamples } from "@/lib/bootstrap";
 
-ensureSeeded();
-ensureAdmin();
-ensureGalleryExamples();
+// Seed once per server instance (idempotent). Top-level promise ensures the
+// store is ready before the first render without duplicating work each request.
+let bootPromise: Promise<void> | null = null;
+function ensureBoot(): Promise<void> {
+  if (!bootPromise) {
+    bootPromise = (async () => {
+      await ensureSeeded();
+      await ensureAdmin();
+      await ensureGalleryExamples();
+    })();
+  }
+  return bootPromise;
+}
 
 export const metadata: Metadata = {
   title: "Interier — Ремонт без дизайнера",
@@ -29,8 +39,9 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const user = getSessionUser();
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  await ensureBoot();
+  const user = await getSessionUser();
   const locale = getLocale();
   return (
     <html lang={locale}>
@@ -49,10 +60,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   referredBy: user.referredBy,
                   telegramId: user.telegramId,
                   vkId: user.vkId,
-                  telegramGranted: grantedRewards(user.id).telegram,
-                  vkGranted: grantedRewards(user.id).vk,
+                  telegramGranted: (await grantedRewards(user.id)).telegram,
+                  vkGranted: (await grantedRewards(user.id)).vk,
                   isAdmin: user.isAdmin,
-                  referralCount: referralCount(user.id),
+                  referralCount: await referralCount(user.id),
                 }
               : null
           }

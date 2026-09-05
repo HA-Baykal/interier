@@ -7,7 +7,7 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    requireAdmin(req);
+    await requireAdmin(req);
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.code }, { status: 403 });
     throw e;
@@ -16,7 +16,7 @@ export async function PATCH(
   if (!body || typeof body.active !== "boolean") {
     return NextResponse.json({ error: "bad_request" }, { status: 400 });
   }
-  mutate((d) => {
+  await mutate((d) => {
     const st = d.styles.find((s) => s.id === params.id);
     if (st) st.active = body.active;
   });
@@ -28,12 +28,12 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    requireAdmin(req);
+    await requireAdmin(req);
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.code }, { status: 403 });
     throw e;
   }
-  mutate((d) => {
+  await mutate((d) => {
     d.styles = d.styles.filter((s) => s.id !== params.id);
   });
   return NextResponse.json({ ok: true });

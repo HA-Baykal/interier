@@ -6,13 +6,14 @@ import { getSetting, setSetting, activeStyles } from "./config";
  * Seeds a default admin account for the testing phase.
  * Override with ADMIN_EMAIL / ADMIN_PASSWORD env vars in production.
  */
-export function ensureAdmin() {
-  if (getSetting("boot_admin") === "1") return;
+export async function ensureAdmin() {
+  if ((await getSetting("boot_admin")) === "1") return;
 
   const email = (process.env.ADMIN_EMAIL || "admin@interier.ru").toLowerCase().trim();
   const password = process.env.ADMIN_PASSWORD || "admin123";
+  const adminReferralCode = await makeReferralCode(email);
 
-  mutate((d) => {
+  await mutate((d) => {
     const existing = d.users.find((u) => u.email === email);
     if (existing) {
       if (!existing.isAdmin) existing.isAdmin = true;
@@ -29,14 +30,14 @@ export function ensureAdmin() {
         telegramUsername: null,
         vkId: null,
         vkUsername: null,
-        referralCode: makeReferralCode(email),
+        referralCode: adminReferralCode,
         referredBy: null,
         isAdmin: true,
       });
     }
   });
 
-  setSetting("boot_admin", "1");
+  await setSetting("boot_admin", "1");
 }
 
 /**
@@ -44,11 +45,11 @@ export function ensureAdmin() {
  * empty on first launch. Uses each active style's marketing preview image as a
  * showcase design. Idempotent via the boot_gallery setting.
  */
-export function ensureGalleryExamples() {
-  if (getSetting("boot_gallery") === "1") return;
-  const styles = activeStyles().filter((s) => s.preview);
+export async function ensureGalleryExamples() {
+  if ((await getSetting("boot_gallery")) === "1") return;
+  const styles = (await activeStyles()).filter((s) => s.preview);
   if (styles.length > 0) {
-    mutate((d) => {
+    await mutate((d) => {
       for (const s of styles) {
         // Skip if we've already seeded an example for this style.
         if (d.generations.some((g) => g.styleId === s.id && g.originalId === "__example__")) continue;
@@ -69,5 +70,5 @@ export function ensureGalleryExamples() {
       }
     });
   }
-  setSetting("boot_gallery", "1");
+  await setSetting("boot_gallery", "1");
 }

@@ -6,14 +6,14 @@ import { activeStyles } from "@/lib/config";
 export async function GET(req: NextRequest) {
   let user;
   try {
-    user = requireUser(req);
+    user = await requireUser(req);
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.code }, { status: 401 });
     throw e;
   }
 
-  const styles = activeStyles();
-  const list = db()
+  const styles = await activeStyles();
+  const list = (await db())
     .generations.filter((g) => g.userId === user.id)
     .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, 60)

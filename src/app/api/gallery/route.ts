@@ -9,8 +9,8 @@ import { GalleryItem } from "@/lib/types";
  * the owner's identity is never exposed.
  */
 export async function GET() {
-  const styles = activeStyles();
-  const items: GalleryItem[] = db()
+  const styles = await activeStyles();
+  const items: GalleryItem[] = (await db())
     .generations.filter((g) => g.published && g.status === "done" && g.resultUrl)
     .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, 120)

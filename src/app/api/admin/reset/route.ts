@@ -4,17 +4,17 @@ import { resetDb } from "@/lib/db";
 
 export async function POST(req: NextRequest) {
   try {
-    requireAdmin(req);
+    await requireAdmin(req);
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.code }, { status: 403 });
     throw e;
   }
-  resetDb();
+  await resetDb();
   // Re-seed styles / packages / settings and re-create the admin account.
   const { ensureSeeded } = await import("@/lib/config");
-  ensureSeeded();
+  await ensureSeeded();
   const { ensureAdmin, ensureGalleryExamples } = await import("@/lib/bootstrap");
-  ensureAdmin();
-  ensureGalleryExamples();
+  await ensureAdmin();
+  await ensureGalleryExamples();
   return NextResponse.json({ ok: true });
 }

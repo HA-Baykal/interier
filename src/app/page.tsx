@@ -5,11 +5,11 @@ import { t } from "@/lib/i18n";
 import { activeStyles, activePackages } from "@/lib/config";
 import { getSessionUser } from "@/lib/auth";
 
-export default function HomePage() {
+export default async function HomePage() {
   const locale = getLocale();
-  const styles = activeStyles();
-  const packages = activePackages();
-  const user = getSessionUser();
+  const styles = await activeStyles();
+  const packages = await activePackages();
+  const user = await getSessionUser();
   const studioHref = user ? "/studio" : "/register";
 
   return (

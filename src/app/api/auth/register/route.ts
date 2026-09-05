@@ -14,7 +14,7 @@ const schema = z.object({
 
 export async function POST(req: NextRequest) {
   const { logAuthDiag } = await import("@/lib/debug");
-  logAuthDiag(req, "register");
+  await logAuthDiag(req, "register");
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   const { name, email, password, referralCode } = parsed.data;
   const emailNorm = email.toLowerCase().trim();
 
-  const d = db();
+  const d = await db();
   if (d.users.some((u) => u.email === emailNorm)) {
     return NextResponse.json({ error: "auth_error_exists" }, { status: 409 });
   }
@@ -41,9 +41,10 @@ export async function POST(req: NextRequest) {
   }
 
   const userId = uid("usr");
-  const freeCredits = getSettingNumber("free_credits", 0);
+  const freeCredits = await getSettingNumber("free_credits", 0);
+  const newReferralCode = await makeReferralCode(emailNorm);
 
-  mutate((draft) => {
+  await mutate((draft) => {
     draft.users.push({
       id: userId,
       email: emailNorm,
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
       telegramUsername: null,
       vkId: null,
       vkUsername: null,
-      referralCode: makeReferralCode(emailNorm),
+      referralCode: newReferralCode,
       referredBy,
       isAdmin: false,
     });
@@ -64,10 +65,10 @@ export async function POST(req: NextRequest) {
 
   // Grant referral bonus to the referrer if applicable
   if (referredBy) {
-    referralOutcome = grantReferralBonus(referredBy, emailNorm, userId);
+    referralOutcome = await grantReferralBonus(referredBy, emailNorm, userId);
   }
 
-  const token = makeSession(userId);
+  const token = await makeSession(userId);
   setSessionCookie(token, isSecureRequest(req));
 
   return NextResponse.json({

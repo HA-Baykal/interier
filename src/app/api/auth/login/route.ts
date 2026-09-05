@@ -10,7 +10,7 @@ const schema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  logAuthDiag(req, "login");
+  await logAuthDiag(req, "login");
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
@@ -18,12 +18,12 @@ export async function POST(req: NextRequest) {
   }
 
   const email = parsed.data.email.toLowerCase().trim();
-  const user = db().users.find((u) => u.email === email);
+  const user = (await db()).users.find((u) => u.email === email);
   if (!user || !verifyPassword(parsed.data.password, user.passwordHash)) {
     return NextResponse.json({ error: "auth_error_invalid" }, { status: 401 });
   }
 
-  const token = makeSession(user.id);
+  const token = await makeSession(user.id);
   setSessionCookie(token, isSecureRequest(req));
   return NextResponse.json({ ok: true, token });
 }

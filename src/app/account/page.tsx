@@ -3,14 +3,15 @@ import Account from "@/components/Account";
 import { resolvePageUser } from "@/lib/auth";
 import { referralCount, grantedRewards } from "@/lib/billing";
 
-export default function AccountPage({
+export default async function AccountPage({
   searchParams,
 }: {
   searchParams: { [key: string]: string | string[] | undefined };
 }) {
   const query = typeof searchParams.ses === "string" ? searchParams.ses : null;
-  const user = resolvePageUser(query);
+  const user = await resolvePageUser(query);
   if (!user) redirect("/login");
+  const rewards = await grantedRewards(user.id);
   return (
     <Account
       initialUser={{
@@ -23,10 +24,10 @@ export default function AccountPage({
         referredBy: user.referredBy,
         telegramId: user.telegramId,
         vkId: user.vkId,
-        telegramGranted: grantedRewards(user.id).telegram,
-        vkGranted: grantedRewards(user.id).vk,
+        telegramGranted: rewards.telegram,
+        vkGranted: rewards.vk,
         isAdmin: user.isAdmin,
-        referralCount: referralCount(user.id),
+        referralCount: await referralCount(user.id),
       }}
     />
   );

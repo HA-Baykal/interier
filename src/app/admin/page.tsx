@@ -5,18 +5,18 @@ import { db } from "@/lib/db";
 import { getSetting, activeStyles, activePackages } from "@/lib/config";
 import { ClientPackage, ClientStyle } from "@/components/types";
 
-export default function AdminPage({
+export default async function AdminPage({
   searchParams,
 }: {
   searchParams: { [key: string]: string | string[] | undefined };
 }) {
   const query = typeof searchParams.ses === "string" ? searchParams.ses : null;
-  const user = resolvePageUser(query);
+  const user = await resolvePageUser(query);
   if (!user) redirect("/login");
   if (!user.isAdmin) redirect("/");
 
-  const d = db();
-  const styles: ClientStyle[] = activeStyles().map((s) => ({
+  const d = await db();
+  const styles: ClientStyle[] = (await activeStyles()).map((s) => ({
     id: s.id,
     slug: s.slug,
     nameRu: s.name.ru,
@@ -30,7 +30,7 @@ export default function AdminPage({
     vignette: s.config.vignette,
     active: s.active,
   }));
-  const packages: ClientPackage[] = activePackages().map((p) => ({
+  const packages: ClientPackage[] = (await activePackages()).map((p) => ({
     id: p.id,
     slug: p.slug,
     nameRu: p.name.ru,
@@ -42,6 +42,34 @@ export default function AdminPage({
     badge: p.badge ? (p.badge.ru || p.badge.en) : null,
   }));
 
+  const [
+    generation_mode,
+    free_credits,
+    reward_telegram,
+    reward_vk,
+    reward_referral,
+    test_unlimited,
+    compatible_provider,
+    compatible_base_url,
+    compatible_api_key,
+    compatible_model,
+  ] = await Promise.all([
+    getSetting("generation_mode"),
+    getSetting("free_credits"),
+    getSetting("reward_telegram"),
+    getSetting("reward_vk"),
+    getSetting("reward_referral"),
+    getSetting("test_unlimited"),
+    getSetting("compatible_provider"),
+    getSetting("compatible_base_url"),
+    getSetting("compatible_api_key"),
+    getSetting("compatible_model"),
+  ]);
+
+  const base = compatible_base_url || process.env.COMPATIBLE_BASE_URL || "https://api.gen-api.ru";
+  const key = compatible_api_key || process.env.COMPATIBLE_API_KEY || "";
+  const model = compatible_model || process.env.COMPATIBLE_MODEL || "gpt-image-2";
+
   return (
     <Admin
       stats={{
@@ -51,21 +79,17 @@ export default function AdminPage({
         referrals: d.referrals.filter((r) => r.rewarded).length,
       }}
       settings={{
-        generation_mode: getSetting("generation_mode") || "demo",
-        free_credits: getSetting("free_credits") || "0",
-        reward_telegram: getSetting("reward_telegram") || "1",
-        reward_vk: getSetting("reward_vk") || "1",
-        reward_referral: getSetting("reward_referral") || "1",
-        test_unlimited: getSetting("test_unlimited") || "1",
-        compatible_provider: getSetting("compatible_provider") || "genapi",
-        compatible_base_url: getSetting("compatible_base_url") || process.env.COMPATIBLE_BASE_URL || "https://api.gen-api.ru",
-        compatible_api_key: getSetting("compatible_api_key") || process.env.COMPATIBLE_API_KEY || "",
-        compatible_model: getSetting("compatible_model") || process.env.COMPATIBLE_MODEL || "gpt-image-2",
-        compatible_configured: !!(
-          (getSetting("compatible_base_url") || process.env.COMPATIBLE_BASE_URL) &&
-          (getSetting("compatible_api_key") || process.env.COMPATIBLE_API_KEY) &&
-          (getSetting("compatible_model") || process.env.COMPATIBLE_MODEL)
-        ),
+        generation_mode: generation_mode || "demo",
+        free_credits: free_credits || "0",
+        reward_telegram: reward_telegram || "1",
+        reward_vk: reward_vk || "1",
+        reward_referral: reward_referral || "1",
+        test_unlimited: test_unlimited || "1",
+        compatible_provider: compatible_provider || "genapi",
+        compatible_base_url: base,
+        compatible_api_key: key,
+        compatible_model: model,
+        compatible_configured: !!(base && key && model),
       }}
       styles={styles}
       packages={packages}

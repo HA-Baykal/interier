@@ -5,6 +5,7 @@ import { adminSettingsView, updateAdminSettings } from "@/lib/admin-settings";
 import { RequestError, safeErrorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 function failure(e: unknown) {
   if (e instanceof AuthError) return NextResponse.json({ error: e.code }, { status: 403 });

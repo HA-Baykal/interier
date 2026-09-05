@@ -1,3 +1,4 @@
+import { safeErrorMessage } from "./errors";
 import { ensureSeeded } from "./config";
 import { ensureAdmin, ensureGalleryExamples } from "./bootstrap";
 
@@ -34,7 +35,7 @@ export async function ensureBootSafe(): Promise<void> {
   try {
     await ensureBoot();
   } catch (e) {
-    console.error("[interier/boot] seeding failed:", e);
+    console.error("[interier/boot] seeding failed:", safeErrorMessage(e));
   }
 }
 
@@ -64,6 +65,6 @@ export async function ensureAdminAvailable(): Promise<void> {
     await ensureBootSafe();
     if (!(await hasAdmin())) await ensureAdmin();
   } catch (e) {
-    console.error("[interier/boot] admin recovery failed:", e);
+    console.error("[interier/boot] admin recovery failed:", safeErrorMessage(e));
   }
 }

@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { activeStyles } from "@/lib/config";
 import { GalleryItem } from "@/lib/types";
 
+export const dynamic = "force-dynamic";
+
 /**
  * Public gallery of owner-opted-in designs. No auth required.
  * Only generations with status "done" that the owner chose to publish are shown;

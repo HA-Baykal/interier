@@ -8,7 +8,7 @@ export function isolateStorage() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "interier-test-"));
   const env = { ...process.env };
   for (const key of Object.keys(process.env)) {
-    if (/^(UPSTASH_|KV_|BLOB_|VERCEL|COMPATIBLE_|GENERATION_MODE|REPLICATE_|DATABASE_PATH|ADMIN_)/.test(key)) delete process.env[key];
+    if (/^(UPSTASH_|KV_|BLOB_|VERCEL|COMPATIBLE_|GENERATION_MODE|REPLICATE_|REDIS_DB_KEY|DATABASE_PATH|ADMIN_)/.test(key)) delete process.env[key];
   }
   process.env.DATABASE_PATH = path.join(dir, "app.json");
   process.chdir(dir);

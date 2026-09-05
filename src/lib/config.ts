@@ -171,29 +171,13 @@ const DEFAULT_SETTINGS: Record<string, string> = {
  * missing settings keys (so future defaults are added to existing databases).
  */
 export async function ensureSeeded() {
-  const d = await db();
-  if (d.styles.length === 0) {
-    await mutate((draft) => {
-      draft.styles = structuredClone(DEFAULT_STYLES);
-    });
-  }
-  if (d.packages.length === 0) {
-    await mutate((draft) => {
-      draft.packages = structuredClone(DEFAULT_PACKAGES);
-    });
-  }
-  // Fill in any settings that are not yet present, leaving existing values alone.
-  const present = new Set(d.settings.map((s) => s.key));
-  const missing = Object.entries(DEFAULT_SETTINGS).filter(([k]) => !present.has(k));
-  if (missing.length > 0) {
-    await mutate((draft) => {
-      for (const [k, v] of missing) {
-        if (!draft.settings.some((s) => s.key === k)) {
-          draft.settings.push({ key: k, value: v });
-        }
-      }
-    });
-  }
+  await mutate((draft) => {
+    if (draft.styles.length === 0) draft.styles = structuredClone(DEFAULT_STYLES);
+    if (draft.packages.length === 0) draft.packages = structuredClone(DEFAULT_PACKAGES);
+    for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
+      if (!draft.settings.some((s) => s.key === key)) draft.settings.push({ key, value });
+    }
+  });
 }
 
 export async function getSetting(key: string): Promise<string | null> {

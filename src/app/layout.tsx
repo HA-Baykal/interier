@@ -6,6 +6,9 @@ import { getLocale } from "@/lib/locale";
 import { referralCount, grantedRewards } from "@/lib/billing";
 import { ensureBootSafe } from "@/lib/boot";
 
+// Never seed or cache user data during a Vercel build.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Interier — Ремонт без дизайнера",
   description:

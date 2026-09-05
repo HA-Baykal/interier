@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { assertDurableDatabase } from "@/lib/storage-config";
+import { RequestError, safeErrorMessage } from "@/lib/errors";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { verifyPassword, makeSession, setSessionCookie, isSecureRequest } from "@/lib/auth";
 import { logAuthDiag } from "@/lib/debug";
-import { ensureBootSafe, ensureAdminAvailable } from "@/lib/boot";
+import { ensureBoot, ensureAdminAvailable } from "@/lib/boot";
 
 const schema = z.object({
   // Keep validation permissive here: the exact reason is reported as
@@ -13,13 +15,20 @@ const schema = z.object({
   password: z.string().min(1).max(200),
 });
 
+export const maxDuration = 30;
+
 export async function POST(req: NextRequest) {
+  try { assertDurableDatabase(); return await login(req); }
+  catch (e) { return NextResponse.json({ error: e instanceof RequestError ? e.code : "auth_unavailable", message: safeErrorMessage(e) }, { status: e instanceof RequestError ? e.status : 503 }); }
+}
+
+async function login(req: NextRequest) {
   await logAuthDiag(req, "login");
 
   // Cold API instances never render the layout, so make sure the database is
   // seeded (and the admin account exists) before validating a password. The
   // second call repairs a store that was emptied while this instance stayed warm.
-  await ensureBootSafe();
+  await ensureBoot();
   await ensureAdminAvailable();
 
   const body = await req.json().catch(() => null);

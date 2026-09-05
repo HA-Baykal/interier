@@ -98,3 +98,18 @@ test("genstatus and settings require admin; diagnostics never expose a saved key
   await store.mutate((d) => { d.users[0].isAdmin = false; });
   assert.equal((await genstatus.GET(req)).status, 403);
 });
+
+test("Vercel refuses ephemeral accounts/settings/generation and explains missing variables", async (t) => {
+  process.env.VERCEL = "1";
+  t.after(() => { delete process.env.VERCEL; });
+  t.mock.method(globalThis, "fetch", async () => { throw new Error("Must not contact a paid provider"); });
+  const res = await generate.POST(request());
+  assert.equal(res.status, 503);
+  assert.match((await res.json()).message, /UPSTASH_REDIS_REST/);
+  const login = await import("../src/app/api/auth/login/route");
+  const register = await import("../src/app/api/auth/register/route");
+  assert.equal((await login.POST(request())).status, 503);
+  assert.equal((await register.POST(request())).status, 503);
+  const admin = await import("../src/lib/admin-settings");
+  await assert.rejects(admin.updateAdminSettings({ compatible_api_key: "dont-lose-me" }), /UPSTASH_REDIS_REST/);
+});

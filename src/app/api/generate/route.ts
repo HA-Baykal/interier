@@ -7,6 +7,7 @@ import { saveUpload, imageMime, maxOriginalBytes } from "@/app/api/upload/servic
 import { planGeneration, executeRealGeneration } from "@/lib/generation/provider";
 import { getGenerationSettings, validateCompatibleConfig } from "@/lib/generation/settings";
 import { RequestError, safeErrorMessage } from "@/lib/errors";
+import { assertDurableDatabase, assertDurableUploads } from "@/lib/storage-config";
 import type { Generation } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -21,6 +22,8 @@ const schema = z.object({
 export async function POST(req: NextRequest) {
   let apiKey = "";
   try {
+    assertDurableDatabase();
+    assertDurableUploads();
     const user = await requireUser(req);
     const form = await req.formData().catch(() => null);
     const file = form?.get("file");

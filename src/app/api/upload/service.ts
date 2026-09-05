@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { uid } from "@/lib/db";
 import { cleanConnectionValue } from "@/lib/env";
+import { assertDurableUploads, blobPrefix } from "@/lib/storage-config";
 
 const UPLOAD_DIR = path.join(process.cwd(), "data", "uploads");
 const MIME_MAP: Record<string, string> = {
@@ -28,6 +29,7 @@ export function uploadStorageMode(): "blob" | "file" | "inline" {
 
 /** Originals AND provider results must use the same durable storage. */
 export async function saveUpload(buffer: Buffer, mime: string): Promise<{ id: string; ext: string; url: string }> {
+  assertDurableUploads();
   const ext = MIME_MAP[mime];
   if (!ext || imageMime(buffer) !== mime) throw new Error("Unsupported image: use a valid JPEG, PNG or WebP");
   const id = uid("up");
@@ -35,11 +37,12 @@ export async function saveUpload(buffer: Buffer, mime: string): Promise<{ id: st
   if (isBlobStorage()) {
     const { put } = await import("@vercel/blob");
     // A configured-but-broken Blob must NOT silently fall back to ephemeral data.
-    const { url } = await put(`uploads/${id}.${ext}`, buffer, {
+    const { url } = await put(`${blobPrefix()}/${id}.${ext}`, buffer, {
       access: "public",
       addRandomSuffix: false,
       contentType: mime,
       token: cleanConnectionValue(process.env.BLOB_READ_WRITE_TOKEN),
+      abortSignal: AbortSignal.timeout(25_000),
     });
     return { id, ext, url };
   }

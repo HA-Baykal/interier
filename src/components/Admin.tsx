@@ -249,7 +249,7 @@ export default function Admin({
           <span className="chip">{env.hasTogether ? "✓" : "✗"} Together/fal</span>
           <span className="chip">Режим: {form.generation_mode}</span>
         </div>
-        <p className="small muted" style={{ marginTop: 12 }}>Проверяется сохранённый ключ. Сначала сохраните изменения. Платная генерация при проверке не запускается.</p>
+        <p className="small muted" style={{ marginTop: 12 }}>Проверяется сохранённый ключ и запись/чтение в хранилищах. Сначала сохраните изменения. Платная генерация не запускается; временные тестовые данные удаляются.</p>
         <button className="btn btn-sm" style={{ marginTop: 12 }} onClick={checkGeneration} disabled={probing || saving}>
           {probing ? "Проверяем…" : "Проверить ИИ и хранилища"}
         </button>

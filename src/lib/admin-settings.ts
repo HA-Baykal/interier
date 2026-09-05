@@ -3,6 +3,7 @@ import { db, mutate } from "./db";
 import { cleanConnectionValue, cleanConfigValue } from "./env";
 import { RequestError } from "./errors";
 import { resolveGenerationSettings, validateCompatibleConfig } from "./generation/settings";
+import { assertDurableDatabase } from "./storage-config";
 import type { DbShape } from "./types";
 
 const schema = z.object({
@@ -39,6 +40,7 @@ export function adminSettingsView(d: DbShape) {
 }
 
 export async function updateAdminSettings(body: unknown) {
+  assertDurableDatabase();
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new RequestError("bad_request", "Settings must be an object");
   const cleaned = Object.fromEntries(Object.entries(body).map(([key, value]) => [key,
     typeof value === "string" ? (key.startsWith("compatible_") ? cleanConnectionValue(value) : cleanConfigValue(value)) : value,

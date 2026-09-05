@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { assertDurableDatabase } from "@/lib/storage-config";
+import { RequestError, safeErrorMessage } from "@/lib/errors";
 import { z } from "zod";
 import { db, mutate, uid, now } from "@/lib/db";
 import { hashPassword, makeSession, setSessionCookie, makeReferralCode, isSecureRequest } from "@/lib/auth";
-import { grantReferralBonus, addCredits } from "@/lib/billing";
+import { grantReferralBonus } from "@/lib/billing";
 import { getSettingNumber } from "@/lib/config";
 
 const schema = z.object({
@@ -12,12 +14,19 @@ const schema = z.object({
   referralCode: z.string().max(40).optional().nullable(),
 });
 
+export const maxDuration = 30;
+
 export async function POST(req: NextRequest) {
+  try { assertDurableDatabase(); return await register(req); }
+  catch (e) { return NextResponse.json({ error: e instanceof RequestError ? e.code : "auth_unavailable", message: safeErrorMessage(e) }, { status: e instanceof RequestError ? e.status : 503 }); }
+}
+
+async function register(req: NextRequest) {
   const { logAuthDiag } = await import("@/lib/debug");
   await logAuthDiag(req, "register");
   // Cold API instances never render the layout: make sure defaults are seeded.
-  const { ensureBootSafe } = await import("@/lib/boot");
-  await ensureBootSafe();
+  const { ensureBoot } = await import("@/lib/boot");
+  await ensureBoot();
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
@@ -47,11 +56,13 @@ export async function POST(req: NextRequest) {
   const freeCredits = await getSettingNumber("free_credits", 0);
   const newReferralCode = await makeReferralCode(emailNorm);
 
-  await mutate((draft) => {
+  const passwordHash = hashPassword(password);
+  const created = await mutate((draft) => {
+    if (draft.users.some((u) => u.email === emailNorm)) return false;
     draft.users.push({
       id: userId,
       email: emailNorm,
-      passwordHash: hashPassword(password),
+      passwordHash,
       name,
       createdAt: now(),
       credits: freeCredits,
@@ -60,11 +71,13 @@ export async function POST(req: NextRequest) {
       telegramUsername: null,
       vkId: null,
       vkUsername: null,
-      referralCode: newReferralCode,
+      referralCode: draft.users.some((u) => u.referralCode === newReferralCode) ? `${newReferralCode}-${uid().slice(0, 8)}` : newReferralCode,
       referredBy,
       isAdmin: false,
     });
+    return true;
   });
+  if (!created) return NextResponse.json({ error: "auth_error_exists" }, { status: 409 });
 
   // Grant referral bonus to the referrer if applicable
   if (referredBy) {

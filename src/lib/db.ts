@@ -15,6 +15,12 @@ import { DbShape } from "./types";
  *
  * The remote path is used automatically when the Redis env vars are present;
  * otherwise a local file is used so the app still runs in development.
+ *
+ * IMPORTANT: there is NO module-level cache. Vercel runs many long-lived
+ * serverless instances simultaneously; caching the whole DB document here made
+ * requests read stale snapshots (missing freshly-created users/sessions), which
+ * is why a user could appear logged in on one page and logged out on another.
+ * Every read is fresh from Redis.
  */
 
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -37,8 +43,6 @@ const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 const REMOTE = !!REDIS_URL && !!REDIS_TOKEN;
 const REMOTE_KEY = "app:db";
-
-let cache: DbShape | null = null;
 
 /* -------- remote (Redis) -------- */
 async function getRedis() {
@@ -85,15 +89,13 @@ async function persistTo(state: DbShape): Promise<void> {
 }
 
 async function load(): Promise<DbShape> {
-  if (cache) return cache;
   let data = REMOTE ? await readRemote() : readFile();
   if (!data) {
     data = structuredClone(EMPTY);
     await persistTo(data);
   }
   // Merge defaults so newly-added collections always exist.
-  cache = { ...structuredClone(EMPTY), ...data };
-  return cache;
+  return { ...structuredClone(EMPTY), ...data };
 }
 
 export async function db(): Promise<DbShape> {
@@ -101,9 +103,7 @@ export async function db(): Promise<DbShape> {
 }
 
 export async function persist(state?: DbShape): Promise<void> {
-  const data = state ?? cache ?? structuredClone(EMPTY);
-  cache = data;
-  await persistTo(data);
+  await persistTo(state ?? (await load()));
 }
 
 export async function mutate<T>(fn: (draft: DbShape) => T): Promise<T> {
@@ -127,7 +127,6 @@ export function now(): number {
 
 /** Thread-safe reset used by tests / the admin "reset demo data" action. */
 export async function resetDb(): Promise<void> {
-  cache = null;
   if (REMOTE) {
     const r = await getRedis();
     await r.del(REMOTE_KEY);

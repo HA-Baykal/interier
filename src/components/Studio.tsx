@@ -339,6 +339,9 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
               {trialAvailable && !unlimited && <span className="chip" style={{ color: "var(--success)" }}>🎁 {t("studio_free_left")}</span>}
             </div>
 
+            {user.isAdmin && !isDemo && aiConfigured && (
+              <p className="small muted mt">{t("studio_provider_billing_note")}</p>
+            )}
             <div className="mt">
               <button
                 className="btn btn-primary"
@@ -357,7 +360,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
                   disabled={generating || !file}
                   onClick={() => generate("all")}
                 >
-                  {generating ? t("studio_processing") : t("studio_gen_all")}
+                  {generating ? t("studio_processing") : t(user.isAdmin && !isDemo ? "studio_gen_all_paid" : "studio_gen_all")}
                 </button>
               </div>
             )}

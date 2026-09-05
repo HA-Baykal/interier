@@ -159,3 +159,27 @@ test("admin probe reports an unverified connection timeout, its region and healt
   assert.equal(data.storageChecks.uploads.ok, true);
   assert.ok(!text.includes(key));
 });
+
+
+test("422 validation details reach the UI and history, with no demo substitute, duplicate request or spent trial", async (t) => {
+  await seed.setSetting("compatible_api_key", "sk_422_fixture");
+  await seed.setSetting("test_unlimited", "0");
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async (_: string, init: RequestInit) => {
+    calls++;
+    assert.equal(init.method, "POST");
+    assert.equal(Object.hasOwn(JSON.parse(String(init.body)), "callback_url"), false);
+    return Response.json({ error: true, errors: { image_urls: ["Unsupported image input"] }, code: "invalid_parameter" }, { status: 422 });
+  });
+  const res = await generate.POST(request());
+  const body = await res.json();
+  assert.equal(body.isDemo, false);
+  assert.equal(body.generations[0].status, "failed");
+  assert.equal(body.generations[0].resultUrl, null);
+  assert.match(body.generations[0].note, /image_urls.*Unsupported image input/);
+  assert.ok(!body.generations[0].note.includes(": true"));
+  assert.equal(calls, 1);
+  const d = await store.db();
+  assert.equal(d.users[0].trialUsed, false);
+  assert.match(d.generations[0].error!, /invalid_parameter/);
+});

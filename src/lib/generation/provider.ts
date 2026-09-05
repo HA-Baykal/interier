@@ -82,14 +82,15 @@ export async function planGeneration(
 export async function executeRealGeneration(
   plan: GenerationPlan,
   imageBuffer: Buffer,
-  mime: string
+  mime: string,
+  originalUrl?: string
 ): Promise<{ resultUrl: string; provider: string } | null> {
   if (!plan.prompt) return null;
 
   if (plan.mode === "compatible") {
     const cfg = plan.compatibleConfig ?? await getCompatibleConfig();
     if (!cfg?.apiKey) throw new Error("AI API key is not configured");
-    const r = await runCompatibleEdit(cfg, imageBuffer, mime, plan.prompt);
+    const r = await runCompatibleEdit(cfg, imageBuffer, mime, plan.prompt, originalUrl);
     return await persistResult(r.outputUrl, r.provider);
   }
 

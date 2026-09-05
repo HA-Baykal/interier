@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
       let note = plan.note;
       if (!isDemo) {
         try {
-          const result = await executeRealGeneration(plan, buffer, mime);
+          const result = await executeRealGeneration(plan, buffer, mime, upload.url);
           if (!result) throw new Error("AI provider returned no image");
           resultUrl = result.resultUrl;
           provider = result.provider;

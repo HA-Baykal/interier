@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import fs from "node:fs";
-import { isolateStorage, PNG } from "./helpers";
+import { isolateStorage, PNG, TEST_USER } from "./helpers";
+import { NextRequest } from "next/server";
 
 let cleanup: () => void;
 let server: Server;
@@ -17,6 +18,7 @@ let authHeader = "";
 let storeHeader = "";
 const authRequests: { method: string; token: string; storeId: string }[] = [];
 let afterImageRead: (() => void) | null = null;
+let publicOrigin = "";
 
 /** Synthetic, non-secret JWT accepted only by our local SDK wire fixture. */
 function oidcToken(label: string) {
@@ -57,7 +59,7 @@ before(async () => {
       const pathname = url.searchParams.get("pathname")!;
       files.set(pathname, body);
       writes.push(pathname);
-      const fileUrl = `${origin}/files/${encodeURIComponent(pathname)}`;
+      const fileUrl = `${publicOrigin || origin}/files/${encodeURIComponent(pathname)}`;
       res.end(JSON.stringify({ url: fileUrl, downloadUrl: fileUrl, pathname, contentType: "image/png" }));
     } else if (url.pathname === "/delete") {
       const data = JSON.parse(body.toString());
@@ -73,6 +75,7 @@ before(async () => {
 });
 beforeEach(() => {
   denied = false;
+  publicOrigin = "";
   afterImageRead = null;
   authRequests.length = 0;
   for (const name of ["VERCEL", "VERCEL_ENV", "VERCEL_OIDC_TOKEN", "BLOB_STORE_ID"]) delete process.env[name];
@@ -184,4 +187,92 @@ test("runtime JWTs echoed in an error are redacted even when absent from the env
   const message = safeErrorMessage(new Error(`Invalid credential: ${token}`));
   assert.ok(!message.includes(token));
   assert.match(message, /redacted/);
+});
+
+
+async function prepareGeneration() {
+  const store = await import("../src/lib/db");
+  const seed = await import("../src/lib/config");
+  await store.resetDb();
+  await seed.ensureSeeded();
+  await seed.setSetting("compatible_api_key", "sk_blob_pipeline_fixture");
+  await seed.setSetting("test_unlimited", "0");
+  await store.mutate((d) => {
+    d.users.push({ ...TEST_USER });
+    d.sessions.push({ token: "image-pipeline-session", userId: TEST_USER.id, createdAt: Date.now(), expiresAt: Date.now() + 60000 });
+  });
+  const form = new FormData();
+  form.set("file", new File([PNG], "room.png", { type: "image/png" }));
+  form.set("styleId", "style_modern");
+  form.set("scope", "single");
+  return { store, request: new NextRequest("https://protected-preview.example.test/api/generate", {
+    method: "POST", headers: { "x-session-token": "image-pipeline-session" }, body: form,
+  }) };
+}
+
+test("generation uses the already-stored OIDC Blob URL and stores the result with refreshed credentials", async (t) => {
+  // A local file DB plus the real Blob SDK wire fixture; no real cloud credentials.
+  delete process.env.BLOB_READ_WRITE_TOKEN;
+  process.env.BLOB_STORE_ID = "store_linked";
+  const firstToken = oidcToken("before-generation");
+  const nextToken = oidcToken("after-generation");
+  process.env.VERCEL_OIDC_TOKEN = firstToken;
+  publicOrigin = "https://photos.example.test";
+  const { store, request } = await prepareGeneration();
+  const { POST } = await import("../src/app/api/generate/route");
+  let starts = 0;
+  let sentPhoto = "";
+  t.mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+    if (init?.method === "POST") {
+      starts++;
+      assert.equal(url, "https://api.gen-api.ru/api/v1/networks/gpt-image-2");
+      assert.equal(writes.length, 1, "the original is uploaded once, before the paid start");
+      const payload = JSON.parse(String(init.body));
+      sentPhoto = payload.image_urls[0];
+      assert.equal(sentPhoto, `${publicOrigin}/files/${encodeURIComponent(writes[0])}`);
+      assert.equal(Object.hasOwn(payload, "callback_url"), false);
+      assert.ok(!String(init.body).includes(PNG.toString("base64")));
+      assert.ok(!String(init.body).includes("protected-preview.example.test"));
+      process.env.VERCEL_OIDC_TOKEN = nextToken;
+      return Response.json({ request_id: 101 });
+    }
+    if (url === "https://api.gen-api.ru/api/v1/request/get/101") {
+      return Response.json({ status: "success", result: ["https://result.example.test/generated.png"] });
+    }
+    assert.equal(url, "https://result.example.test/generated.png");
+    assert.equal(new Headers(init?.headers).has("authorization"), false);
+    return new Response(new Uint8Array(PNG), { headers: { "Content-Type": "image/png" } });
+  });
+  const response = await POST(request);
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.isDemo, false);
+  assert.equal(body.generations[0].status, "done");
+  assert.equal(body.generations[0].originalUrl, sentPhoto);
+  assert.ok(body.generations[0].resultUrl.startsWith(publicOrigin));
+  assert.notEqual(body.generations[0].resultUrl, sentPhoto);
+  assert.equal(starts, 1);
+  assert.equal(writes.length, 2);
+  assert.deepEqual(files.get(writes[0]), PNG);
+  assert.deepEqual(files.get(writes[1]), PNG);
+  assert.equal(authRequests[0].token, `Bearer ${firstToken}`);
+  assert.equal(authRequests.at(-1)?.token, `Bearer ${nextToken}`);
+  const saved = (await store.db()).generations[0];
+  assert.equal(saved.originalUrl, sentPhoto);
+  assert.equal(saved.resultUrl, body.generations[0].resultUrl);
+  assert.equal(saved.status, "done");
+});
+
+test("a failed original Blob write cannot issue a paid GenAPI request or consume the trial", async (t) => {
+  const { store, request } = await prepareGeneration();
+  const { POST } = await import("../src/app/api/generate/route");
+  denied = true;
+  let providerCalls = 0;
+  t.mock.method(globalThis, "fetch", async () => { providerCalls++; throw new Error("Must not contact GenAPI"); });
+  const response = await POST(request);
+  assert.equal(response.status, 500);
+  assert.equal(providerCalls, 0);
+  const d = await store.db();
+  assert.equal(d.generations.length, 0);
+  assert.equal(d.users.find((user) => user.id === TEST_USER.id)?.trialUsed, false);
 });

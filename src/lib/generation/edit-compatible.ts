@@ -2,17 +2,18 @@
  * Image-edit connector supporting:
  *   1) GenAPI native REST (provider "genapi") — gen-api.ru
  *      POST https://api.gen-api.ru/api/v1/networks/{model_id}
- *      body: { prompt, image_urls: [dataUri], quality, image_size, num_images, output_format }
+ *      body: { prompt, image_urls: [publicPhotoUrl], quality, image_size, num_images, output_format }
  *      result via polling GET /api/v1/request/get/{request_id}
  *
  *   2) OpenAI-compatible image edit (provider "openai-compatible") — provod.ai etc.
  *      POST {base}/v1/images/edits  (multipart)
  *
- * Both are used from Russia with ruble payment. We pass the uploaded room photo
- * as a data URI so no public hosting / localhost reachability is needed.
+ * Both are used from Russia with ruble payment. GenAPI receives the existing
+ * public Blob URL on Vercel; local callers retain the legacy inline photo input.
+ * OpenAI-compatible providers still receive a multipart file.
  */
 
-import { providerHttpError, safeErrorMessage } from "../errors";
+import { providerHttpError, providerErrorDetail } from "../errors";
 import { validateCompatibleConfig, type CompatibleConfig } from "./settings";
 export { getCompatibleConfig } from "./settings";
 export type { CompatibleConfig, CompatibleProvider } from "./settings";
@@ -56,18 +57,33 @@ function toDataUri(buffer: Buffer, mime: string): string {
   return `data:${mime};base64,${buffer.toString("base64")}`;
 }
 
+/** Use the existing Blob URL, not a URL built from the protected Preview host. */
+function genApiPhotoInput(buffer: Buffer, mime: string, originalUrl?: string): string {
+  if (!originalUrl || originalUrl.startsWith("/api/uploads/") || originalUrl.startsWith("data:")) {
+    return toDataUri(buffer, mime);
+  }
+  let url: URL;
+  try { url = new URL(originalUrl); } catch { throw new Error("Invalid original photo URL"); }
+  if (url.protocol !== "https:" || url.username || url.password || url.hash) {
+    throw new Error("Original photo must have a public HTTPS URL without embedded credentials");
+  }
+  return url.href;
+}
+
 async function genApiRequest(
   cfg: CompatibleConfig,
   imageBuffer: Buffer,
   mime: string,
-  prompt: string
+  prompt: string,
+  originalUrl?: string
 ): Promise<{ outputUrl: string; provider: string }> {
   const endpoint = `${cfg.baseUrl}/api/v1/networks/${encodeURIComponent(cfg.model)}`;
   const deadline = Date.now() + 210_000;
-  const imageUrl = toDataUri(imageBuffer, mime);
+  const imageUrl = genApiPhotoInput(imageBuffer, mime, originalUrl);
 
+  // Polling needs no callback; omit the unused optional URL instead of sending null.
+  // Model contract: https://gen-api.ru/model/gpt-image-2/api
   const payload = {
-    callback_url: null,
     prompt,
     image_urls: [imageUrl],
     quality: "high",
@@ -99,8 +115,8 @@ async function genApiRequest(
   }
 
   const startData = await startRes.json();
-  const requestId = startData.request_id;
-  if (!requestId) throw new Error("GenAPI did not return request_id");
+  const requestId = startData?.request_id;
+  if (!requestId) throw new Error(`GenAPI start: ${providerErrorDetail(startData, [cfg.apiKey]) || "API did not return request_id"}`);
 
   // Poll for the result.
   while (Date.now() < deadline) {
@@ -128,8 +144,7 @@ async function genApiRequest(
       return { outputUrl: url, provider: cfg.model };
     }
     if (d.status === "error") {
-      const msg = d.error || d.full_response?.[0]?.error || "unknown error";
-      throw new Error(safeErrorMessage(`GenAPI error: ${JSON.stringify(msg)}`, [cfg.apiKey]));
+      throw new Error(`GenAPI error: ${providerErrorDetail(d, [cfg.apiKey]) || "Провайдер не передал пояснение ошибки."}`);
     }
   }
 
@@ -198,11 +213,12 @@ export async function runCompatibleEdit(
   cfg: CompatibleConfig,
   imageBuffer: Buffer,
   mime: string,
-  prompt: string
+  prompt: string,
+  originalUrl?: string
 ): Promise<CompatibleResult> {
   validateCompatibleConfig(cfg);
   if (cfg.provider === "openai-compatible") {
     return openAiCompatibleRequest(cfg, imageBuffer, mime, prompt);
   }
-  return genApiRequest(cfg, imageBuffer, mime, prompt);
+  return genApiRequest(cfg, imageBuffer, mime, prompt, originalUrl);
 }

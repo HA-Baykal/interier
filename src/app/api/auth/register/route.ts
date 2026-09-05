@@ -15,6 +15,9 @@ const schema = z.object({
 export async function POST(req: NextRequest) {
   const { logAuthDiag } = await import("@/lib/debug");
   await logAuthDiag(req, "register");
+  // Cold API instances never render the layout: make sure defaults are seeded.
+  const { ensureBootSafe } = await import("@/lib/boot");
+  await ensureBootSafe();
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) {

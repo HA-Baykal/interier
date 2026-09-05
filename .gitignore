@@ -8,3 +8,4 @@ build
 src/*.db
 data
 .DS_Store
+*.tsbuildinfo

@@ -1,5 +1,6 @@
 import { db, mutate } from "./db";
 import { Package, Style } from "./types";
+import { getGenerationSettings } from "./generation/settings";
 
 /** Default subscriptions shown while payments are not yet attached. */
 export const DEFAULT_PACKAGES: Package[] = [
@@ -228,7 +229,7 @@ export async function activePackages(): Promise<Package[]> {
 }
 
 export async function generationMode(): Promise<string> {
-  return (await getSetting("generation_mode")) || process.env.GENERATION_MODE || "demo";
+  return (await getGenerationSettings()).mode;
 }
 
 /** The single, canonical shorthand used across the app. */

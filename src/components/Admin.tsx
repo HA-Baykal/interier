@@ -18,6 +18,7 @@ type Settings = {
   compatible_api_key: string;
   compatible_model: string;
   compatible_configured: boolean;
+  compatible_key_source?: string;
 };
 
 type Env = { hasReplicate: boolean; hasOpenAI: boolean; hasTogether: boolean };
@@ -41,6 +42,10 @@ export default function Admin({
   const router = useRouter();
   const [form, setForm] = useState(settings);
   const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [probing, setProbing] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<string | null>(null);
 
   function field(key: keyof Settings) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -48,16 +53,35 @@ export default function Admin({
   }
 
   async function saveSettings() {
-    const res = await fetch("/api/admin/settings", {
-      method: "PUT",
-      headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-    const data = await res.json();
-    if (data.ok) {
+    setSaving(true);
+    setError(null);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/admin/settings", {
+        method: "PUT",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
+      setForm(data.settings);
       setMsg(t("admin_saved"));
-      setTimeout(() => setMsg(null), 2200);
-    }
+      setDiagnostics(null);
+      router.refresh();
+    } catch (e) { setError(e instanceof Error ? e.message : t("common_error")); }
+    finally { setSaving(false); }
+  }
+
+  async function checkGeneration() {
+    setProbing(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/genstatus?probe=1", { headers: authHeaders(), cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
+      setDiagnostics(JSON.stringify(data, null, 2));
+    } catch (e) { setError(e instanceof Error ? e.message : t("common_error")); }
+    finally { setProbing(false); }
   }
 
   async function toggleStyle(id: string, active: boolean) {
@@ -195,7 +219,8 @@ export default function Admin({
           </div>
           <div className="field" style={{ marginTop: 12 }}>
             <label>{t("admin_compatible_key")}</label>
-            <input className="input" type="password" placeholder="••••••••" value={form.compatible_api_key} onChange={field("compatible_api_key")} />
+            <input className="input" type="password" autoComplete="new-password" placeholder={form.compatible_configured ? "Ключ сохранён — оставьте пустым, чтобы не менять" : "API-ключ"} value={form.compatible_api_key} onChange={field("compatible_api_key")} />
+            <p className="small muted" style={{ marginTop: 6 }}>Новый ключ автоматически включает режим compatible. Сохранённый ключ не отображается и не передаётся в браузер.</p>
           </div>
           <div className="small muted">→ {t("admin_compatible_model_list")}: 
             {form.compatible_provider === "genapi" ? (
@@ -207,9 +232,10 @@ export default function Admin({
         </div>
 
         <div className="row" style={{ marginTop: 16 }}>
-          <button className="btn btn-primary" onClick={saveSettings}>{t("admin_save")}</button>
-          {msg && <span className="ok">{msg}</span>}
+          <button className="btn btn-primary" onClick={saveSettings} disabled={saving}>{saving ? "Сохраняем…" : t("admin_save")}</button>
+          {msg && <span className="ok" role="status">{msg}</span>}
         </div>
+        {error && <p className="err" role="alert" style={{ marginTop: 12 }}>{error}</p>}
       </div>
 
       {/* AI keys status */}
@@ -223,6 +249,11 @@ export default function Admin({
           <span className="chip">{env.hasTogether ? "✓" : "✗"} Together/fal</span>
           <span className="chip">Режим: {form.generation_mode}</span>
         </div>
+        <p className="small muted" style={{ marginTop: 12 }}>Проверяется сохранённый ключ. Сначала сохраните изменения. Платная генерация при проверке не запускается.</p>
+        <button className="btn btn-sm" style={{ marginTop: 12 }} onClick={checkGeneration} disabled={probing || saving}>
+          {probing ? "Проверяем…" : "Проверить ИИ и хранилища"}
+        </button>
+        {diagnostics && <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", marginTop: 12 }} role="status">{diagnostics}</pre>}
       </div>
 
       {/* Styles */}

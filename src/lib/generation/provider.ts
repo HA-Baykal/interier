@@ -1,12 +1,12 @@
 import { Style, StyleConfig } from "../types";
-import { generationMode } from "../config";
-import { defaultReplicateConfig, runReplicate } from "./replicate";
+import { getGenerationSettings, type CompatibleConfig } from "./settings";
+import { defaultReplicateConfig, runReplicate, type ReplicateConfig } from "./replicate";
 import {
   getCompatibleConfig,
   buildInteriorEditPrompt,
   runCompatibleEdit,
 } from "./edit-compatible";
-import { saveUpload, resolveImageUrl } from "@/app/api/upload/service";
+import { saveUpload, resolveImageUrl, imageMime } from "@/app/api/upload/service";
 
 /**
  * Pluggable generation provider (path #1 — Russian API aggregator).
@@ -28,18 +28,25 @@ export type GenerationPlan = {
   prompt: string | null;
   /** Human readable status to show during generation. */
   note: string;
+  compatibleConfig?: CompatibleConfig;
+  replicateConfig?: ReplicateConfig | null;
 };
 
-export async function planGeneration(style: Style): Promise<GenerationPlan> {
-  const mode = await generationMode();
+export async function planGeneration(
+  style: Style,
+  settings?: Awaited<ReturnType<typeof getGenerationSettings>>
+): Promise<GenerationPlan> {
+  const resolved = settings ?? await getGenerationSettings();
+  const mode = resolved.mode;
   const prompt = buildInteriorEditPrompt(style.name.en, style.description.en);
 
   switch (mode) {
     case "compatible": {
-      const cfg = await getCompatibleConfig();
+      const cfg = resolved.compatible;
       return {
         provider: cfg?.provider === "openai-compatible" ? "provod.ai" : cfg?.model || "Image edit",
         mode,
+        compatibleConfig: cfg,
         demoConfig: null,
         prompt,
         note: "Перерисовываем интерьер, сохраняя планировку...",
@@ -49,6 +56,7 @@ export async function planGeneration(style: Style): Promise<GenerationPlan> {
       return {
         provider: "Replicate",
         mode,
+        replicateConfig: defaultReplicateConfig(),
         demoConfig: null,
         prompt,
         note: "Обрабатываем через Replicate...",
@@ -68,9 +76,8 @@ export async function planGeneration(style: Style): Promise<GenerationPlan> {
 
 /**
  * Runs a real generation for the configured provider and returns a public
- * URL to the generated image (saved into the local uploads store).
- * If no provider is configured / the call fails, it returns null so the
- * caller can fall back to demo. Throws only for hard, non-fallback errors.
+ * URL to the generated image (Blob on Vercel, uploads locally).
+ * A missing/broken real provider is an error, never a fake demo success.
  */
 export async function executeRealGeneration(
   plan: GenerationPlan,
@@ -80,15 +87,15 @@ export async function executeRealGeneration(
   if (!plan.prompt) return null;
 
   if (plan.mode === "compatible") {
-    const cfg = await getCompatibleConfig();
-    if (!cfg) return null; // key not configured -> stay in demo
+    const cfg = plan.compatibleConfig ?? await getCompatibleConfig();
+    if (!cfg?.apiKey) throw new Error("AI API key is not configured");
     const r = await runCompatibleEdit(cfg, imageBuffer, mime, plan.prompt);
     return await persistResult(r.outputUrl, r.provider);
   }
 
   if (plan.mode === "replicate") {
-    const cfg = defaultReplicateConfig();
-    if (!cfg) return null; // key missing -> stay in demo
+    const cfg = plan.replicateConfig ?? defaultReplicateConfig();
+    if (!cfg) throw new Error("Replicate API token is not configured");
     const r = await runReplicate(cfg, imageBuffer, mime, plan.prompt);
     return await persistResult(r.outputUrl, "Replicate");
   }
@@ -110,13 +117,30 @@ async function persistResult(
     m = match[1];
     buf = Buffer.from(match[2], "base64");
   } else {
-    const res = await fetch(outputUrl);
-    if (!res.ok) throw new Error("Failed to download generated image");
-    buf = Buffer.from(await res.arrayBuffer());
-    const ext = (outputUrl.split("?")[0].split(".").pop() || "png").toLowerCase();
-    m = ext === "jpg" ? "image/jpeg" : ext === "webp" ? "image/webp" : "image/png";
+    const url = new URL(outputUrl);
+    if (url.protocol !== "https:" || url.username || url.password) throw new Error("Invalid result URL from provider");
+    const res = await fetch(outputUrl, { cache: "no-store", signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) throw new Error(`Failed to download generated image (HTTP ${res.status})`);
+    const limit = 20 * 1024 * 1024;
+    if (Number(res.headers.get("content-length")) > limit) throw new Error("Generated image exceeds 20 MB");
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error("Empty image response from provider");
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.length;
+        if (size > limit) { await reader.cancel(); throw new Error("Generated image exceeds 20 MB"); }
+        chunks.push(value);
+      }
+    } finally { reader.releaseLock(); }
+    buf = Buffer.concat(chunks);
+    m = imageMime(buf) || "";
   }
 
+  if (buf.length > 20 * 1024 * 1024) throw new Error("Generated image exceeds 20 MB");
   const saved = await saveUpload(buf, m);
   return { resultUrl: resolveImageUrl(saved.url), provider };
 }

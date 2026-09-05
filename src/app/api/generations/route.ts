@@ -27,6 +27,7 @@ export async function GET(req: NextRequest) {
         originalUrl: g.originalUrl ?? `/api/uploads/${g.originalId}`,
         resultUrl: g.resultUrl,
         status: g.status,
+        error: g.error,
         provider: g.provider,
         mode: g.mode,
         published: !!g.published,

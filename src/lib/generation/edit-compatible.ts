@@ -12,37 +12,10 @@
  * as a data URI so no public hosting / localhost reachability is needed.
  */
 
-import { getSetting } from "../config";
-
-export type CompatibleProvider = "genapi" | "openai-compatible";
-
-export type CompatibleConfig = {
-  provider: CompatibleProvider;
-  /** For genapi: "https://api.gen-api.ru". For openai-compatible: "https://api.provod.ai/v1". */
-  baseUrl: string;
-  apiKey: string;
-  model: string;
-};
-
-export async function getCompatibleConfig(): Promise<CompatibleConfig | null> {
-  const provider: CompatibleProvider =
-    ((await getSetting("compatible_provider")) as CompatibleProvider) || "genapi";
-  const defaultBase = provider === "openai-compatible" ? "https://api.provod.ai/v1" : "https://api.gen-api.ru";
-  const baseUrl =
-    (await getSetting("compatible_base_url")) || process.env.COMPATIBLE_BASE_URL || defaultBase;
-  const apiKey =
-    (await getSetting("compatible_api_key")) || process.env.COMPATIBLE_API_KEY || "";
-  let model =
-    (await getSetting("compatible_model")) || process.env.COMPATIBLE_MODEL || "gpt-image-2";
-  // GenAPI uses the bare model id (e.g. "gpt-image-2", "nano-banana-pro").
-  // Some OpenAI-style names carry a provider prefix ("google/nano-banana",
-  // "openai/gpt-image-2") — strip it for the native GenAPI endpoint.
-  if (provider === "genapi" && model.includes("/")) {
-    model = model.slice(model.lastIndexOf("/") + 1);
-  }
-  if (!baseUrl || !apiKey || !model) return null;
-  return { provider, baseUrl: baseUrl.replace(/\/+$/, ""), apiKey, model };
-}
+import { providerHttpError, safeErrorMessage } from "../errors";
+import { validateCompatibleConfig, type CompatibleConfig } from "./settings";
+export { getCompatibleConfig } from "./settings";
+export type { CompatibleConfig, CompatibleProvider } from "./settings";
 
 /**
  * Strong structure-preserving interior prompt. Structural elements (walls,
@@ -89,7 +62,8 @@ async function genApiRequest(
   mime: string,
   prompt: string
 ): Promise<{ outputUrl: string; provider: string }> {
-  const endpoint = `${cfg.baseUrl}/api/v1/networks/${cfg.model}`;
+  const endpoint = `${cfg.baseUrl}/api/v1/networks/${encodeURIComponent(cfg.model)}`;
+  const deadline = Date.now() + 210_000;
   const imageUrl = toDataUri(imageBuffer, mime);
 
   const payload = {
@@ -112,14 +86,16 @@ async function genApiRequest(
         Accept: "application/json",
       },
       body: JSON.stringify(payload),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(30_000),
     });
   } catch (e) {
     throw wrapFetchError(e, "GenAPI start");
   }
 
   if (!startRes.ok) {
-    const text = await startRes.text().catch(() => "");
-    throw new Error(`GenAPI start failed (${startRes.status}): ${text.slice(0, 300)}`);
+    throw await providerHttpError(startRes, "GenAPI start", cfg.apiKey);
   }
 
   const startData = await startRes.json();
@@ -127,20 +103,22 @@ async function genApiRequest(
   if (!requestId) throw new Error("GenAPI did not return request_id");
 
   // Poll for the result.
-  const deadline = Date.now() + 180_000;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 2000));
+    if (Date.now() >= deadline) break;
     let pollRes: Response;
     try {
-      pollRes = await fetch(`${cfg.baseUrl}/api/v1/request/get/${requestId}`, {
+      pollRes = await fetch(`${cfg.baseUrl}/api/v1/request/get/${encodeURIComponent(String(requestId))}`, {
         headers: { Authorization: `Bearer ${cfg.apiKey}`, Accept: "application/json" },
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(Math.min(15_000, deadline - Date.now())),
       });
     } catch (e) {
       throw wrapFetchError(e, "GenAPI poll");
     }
     if (!pollRes.ok) {
-      const t = await pollRes.text().catch(() => "");
-      throw new Error(`GenAPI poll failed (${pollRes.status}): ${t.slice(0, 200)}`);
+      throw await providerHttpError(pollRes, "GenAPI poll", cfg.apiKey);
     }
     const d = await pollRes.json();
     if (d.status === "success") {
@@ -151,7 +129,7 @@ async function genApiRequest(
     }
     if (d.status === "error") {
       const msg = d.error || d.full_response?.[0]?.error || "unknown error";
-      throw new Error(`GenAPI error: ${JSON.stringify(msg)}`);
+      throw new Error(safeErrorMessage(`GenAPI error: ${JSON.stringify(msg)}`, [cfg.apiKey]));
     }
   }
 
@@ -189,14 +167,16 @@ async function openAiCompatibleRequest(
         // no Content-Type: multipart boundary is set automatically
       },
       body: form,
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(210_000),
     });
   } catch (e) {
     throw wrapFetchError(e, "Image edit");
   }
 
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Image edit failed (${res.status}): ${text.slice(0, 300)}`);
+    throw await providerHttpError(res, "Image edit", cfg.apiKey);
   }
 
   const data = await res.json();
@@ -220,6 +200,7 @@ export async function runCompatibleEdit(
   mime: string,
   prompt: string
 ): Promise<CompatibleResult> {
+  validateCompatibleConfig(cfg);
   if (cfg.provider === "openai-compatible") {
     return openAiCompatibleRequest(cfg, imageBuffer, mime, prompt);
   }

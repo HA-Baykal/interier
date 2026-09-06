@@ -16,6 +16,8 @@ const EMPTY: DbShape = {
   styles: [],
   packages: [],
   settings: [],
+  botChats: [],
+  botLinks: [],
 };
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;

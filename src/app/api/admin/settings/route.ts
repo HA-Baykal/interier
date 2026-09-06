@@ -29,6 +29,11 @@ export async function GET(req: NextRequest) {
       getSetting("compatible_model"),
     ]);
 
+  const CORE_KEYS = ["generation_mode", "free_credits", "reward_telegram", "reward_vk", "reward_referral", "test_unlimited"];
+  const extraKeys = ALLOWED.filter((k) => !k.startsWith("compatible_") && !CORE_KEYS.includes(k));
+  const extra: Record<string, string> = {};
+  for (const k of extraKeys) extra[k] = (await getSetting(k)) || "";
+
   const base = compatible_base_url || process.env.COMPATIBLE_BASE_URL || "https://api.gen-api.ru";
   const key = compatible_api_key || process.env.COMPATIBLE_API_KEY || "";
   const model = compatible_model || process.env.COMPATIBLE_MODEL || "gpt-image-2";
@@ -46,6 +51,7 @@ export async function GET(req: NextRequest) {
       compatible_api_key: key,
       compatible_model: model,
       compatible_configured: !!(base && key && model),
+      ...extra,
     },
     stats: {
       users: d.users.length,
@@ -72,6 +78,47 @@ const ALLOWED = [
   "compatible_base_url",
   "compatible_api_key",
   "compatible_model",
+  // Shopping list (interior details → marketplace links)
+  "shopping_enabled",
+  "shopping_auto",
+  "shopping_max_items",
+  "shopping_marketplaces",
+  "shopping_extra_params",
+  "shopping_default_mode",
+  "shopping_public_links",
+  // AI detail detector
+  "vision_enabled",
+  "vision_provider",
+  "vision_base_url",
+  "vision_api_key",
+  "vision_model",
+  // Bots & messenger apps
+  "bots_enabled",
+  "bots_inline_generation",
+  "bots_simulator",
+  "bots_poll_secret",
+  "bots_link_ttl_min",
+  "public_base_url",
+  "admin_telegram_id",
+  "telegram_bot_token",
+  "telegram_bot_username",
+  "telegram_mini_app_url",
+  "telegram_webhook_secret",
+  "telegram_channel_id",
+  "vk_group_id",
+  "vk_access_token",
+  "vk_callback_secret",
+  "vk_confirmation_token",
+  "vk_verify_signature",
+  "vk_mini_app_id",
+  "vk_app_verify_token",
+  "max_bot_token",
+  "max_base_url",
+  "max_webhook_secret",
+  // Marketing channels shown in the bot menu
+  "channel_telegram_url",
+  "channel_vk_url",
+  "channel_max_url",
 ];
 
 export async function PUT(req: NextRequest) {

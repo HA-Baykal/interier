@@ -162,6 +162,52 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   compatible_base_url: "https://api.gen-api.ru",
   compatible_api_key: "",
   compatible_model: "gpt-image-2",
+
+  /* --- Shopping list (where to buy each interior detail) --- */
+  shopping_enabled: "1",
+  shopping_auto: "1", // attach a list to every generation
+  shopping_max_items: "8",
+  shopping_marketplaces: "ozon,yandex_market,leroy_merlin",
+  shopping_extra_params: "", // appended to every marketplace URL (partner tags)
+  shopping_default_mode: "hotspots", // hotspots | list
+  shopping_public_links: "0", // show the shopping list in the public gallery
+
+  /* --- AI tagger (bounding boxes for hover links) --- */
+  vision_enabled: "1",
+  vision_provider: "inherit", // inherit = same aggregator key/base as generation
+  vision_base_url: "https://api.gen-api.ru",
+  vision_api_key: "",
+  vision_model: "gpt-4o-mini",
+
+  /* --- Bots (Telegram / VK / MAX) --- */
+  bots_enabled: "1",
+  bots_inline_generation: "0", // 1 = run generation inside the webhook (serverless)
+  bots_poll_secret: "", // guards the long-polling endpoint for hosts without webhooks
+  bots_simulator: "0", // 1 = allow the in-panel bot simulator
+  public_base_url: "", // e.g. https://interier.onrender.com (needed by bots & mini apps)
+  admin_telegram_id: "",
+  telegram_bot_token: "",
+  telegram_bot_username: "",
+  telegram_mini_app_url: "",
+  telegram_webhook_secret: "",
+  vk_group_id: "",
+  vk_access_token: "",
+  vk_callback_secret: "",
+  vk_confirmation_token: "",
+  vk_verify_signature: "1",
+  vk_mini_app_id: "",
+  vk_app_verify_token: "", // static token accepted from the VK Bridge login flow
+  telegram_channel_id: "", // @channel or -100... id, for real "+1 за подписку" checks
+  max_bot_token: "",
+  max_bot_username: "",
+  max_base_url: "https://platform-api2.max.ru",
+  max_webhook_secret: "",
+  bots_link_ttl_min: "60",
+
+  /* --- Marketing channels linked from the bot menu --- */
+  channel_telegram_url: "https://t.me/interier_ai",
+  channel_vk_url: "https://vk.com/interier_ai",
+  channel_max_url: "https://max.ru/interier_ai",
 };
 
 /**
@@ -212,6 +258,26 @@ export async function setSetting(key: string, value: string) {
     if (existing) existing.value = value;
     else d.settings.push({ key, value });
   });
+}
+
+/** Boolean-ish setting: "1" | "true" | "on" → true. */
+export async function getSettingBool(key: string, fallback = false): Promise<boolean> {
+  const v = await getSetting(key);
+  if (v === null || v === "") return fallback;
+  return ["1", "true", "on", "yes", "да"].includes(v.trim().toLowerCase());
+}
+
+/**
+ * Read a setting with an environment-variable fallback.
+ *
+ * Secrets are usually injected by the hosting panel (env), while day-to-day
+ * tweaks happen in the admin panel (DB). Both are supported, DB wins when set.
+ */
+export async function getSettingOrEnv(key: string, envName?: string): Promise<string> {
+  const v = await getSetting(key);
+  if (v !== null && v.trim() !== "") return v.trim();
+  const env = process.env[envName || key.toUpperCase()];
+  return (env || "").trim();
 }
 
 /** Whether unlimited (test) generation mode is enabled for the current user. */

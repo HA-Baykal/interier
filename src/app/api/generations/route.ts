@@ -31,6 +31,12 @@ export async function GET(req: NextRequest) {
         mode: g.mode,
         published: !!g.published,
         createdAt: g.createdAt,
+        kind: g.kind || "design",
+        instruction: g.instruction ?? null,
+        changedCategories: g.changedCategories ?? [],
+        parentGenerationId: g.parentGenerationId ?? null,
+        origin: g.origin ?? "web",
+        shopping: g.shopping || null,
       };
     });
 

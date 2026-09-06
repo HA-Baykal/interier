@@ -135,6 +135,54 @@ export async function referralCount(userId: string): Promise<number> {
   return (await db()).referrals.filter((r) => r.referrerId === userId && r.rewarded).length;
 }
 
+/* ------------------------------------------------------------------ */
+/* Generation charging (shared by the website and the messenger bots)  */
+/* ------------------------------------------------------------------ */
+
+export type ChargeOutcome =
+  | { ok: true; consumed: "trial" | "credit" | "unlimited" }
+  | { ok: false; error: "no_credits" | "no_trial" };
+
+/**
+ * Decide how a generation is paid for and mutate the balance accordingly.
+ *
+ * `scope: "all"` is the free trial that renders every style at once; while the
+ * test "unlimited" switch is on nothing is consumed at all.
+ */
+export async function authorizeGeneration(
+  user: User,
+  scope: "single" | "all" = "single"
+): Promise<ChargeOutcome> {
+  const { isUnlimitedMode } = await import("./config");
+  if (await isUnlimitedMode()) return { ok: true, consumed: "unlimited" };
+
+  if (scope === "all") {
+    if (user.trialUsed) return { ok: false, error: "no_trial" };
+    await mutate((d) => {
+      const u = d.users.find((x) => x.id === user.id);
+      if (u) u.trialUsed = true;
+    });
+    return { ok: true, consumed: "trial" };
+  }
+
+  if (!user.trialUsed) {
+    await mutate((d) => {
+      const u = d.users.find((x) => x.id === user.id);
+      if (u) u.trialUsed = true;
+    });
+    return { ok: true, consumed: "trial" };
+  }
+
+  const ok = await spendCredit(user.id);
+  return ok ? { ok: true, consumed: "credit" } : { ok: false, error: "no_credits" };
+}
+
+/** Give a credit back when a generation failed for technical reasons. */
+export async function refundGeneration(user: User, consumed: "trial" | "credit" | "unlimited") {
+  if (consumed !== "credit") return;
+  await addCredits(user.id, 1);
+}
+
 /** Which subscription bonuses have already been granted to a user. */
 export async function grantedRewards(userId: string): Promise<{ telegram: boolean; vk: boolean }> {
   const d = await db();

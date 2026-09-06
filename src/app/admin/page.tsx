@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import Admin from "@/components/Admin";
+import AdminBots from "@/components/AdminBots";
+import AdminShopping from "@/components/AdminShopping";
 import { resolvePageUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getSetting, activeStyles, activePackages } from "@/lib/config";
@@ -71,7 +73,8 @@ export default async function AdminPage({
   const model = compatible_model || process.env.COMPATIBLE_MODEL || "gpt-image-2";
 
   return (
-    <Admin
+    <>
+      <Admin
       stats={{
         users: d.users.length,
         generations: d.generations.length,
@@ -98,6 +101,9 @@ export default async function AdminPage({
         hasOpenAI: !!process.env.OPENAI_API_KEY,
         hasTogether: !!process.env.TOGETHER_API_KEY || !!process.env.FAL_API_KEY,
       }}
-    />
+      />
+      <AdminShopping />
+      <AdminBots />
+    </>
   );
 }

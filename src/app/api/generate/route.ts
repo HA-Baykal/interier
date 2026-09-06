@@ -1,31 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db, mutate, uid, now } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { spendCredit } from "@/lib/billing";
-import { activeStyles, generationMode, isUnlimitedMode } from "@/lib/config";
+import { authorizeGeneration } from "@/lib/billing";
+import { activeStyles, getSettingNumber } from "@/lib/config";
 import { saveUpload } from "@/app/api/upload/service";
-import { planGeneration, executeRealGeneration } from "@/lib/generation/provider";
-import { Generation, Style } from "@/lib/types";
+import { runStyleGeneration } from "@/lib/generation/pipeline";
+import { Style } from "@/lib/types";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+// A real image-edit call can take minutes; never kill it mid-flight.
+export const maxDuration = 300;
 
 const schema = z.object({
   styleId: z.string().optional(),
   scope: z.enum(["single", "all"]).default("single"),
+  /** Optional free-text wish: applied on top of the style. */
+  instruction: z.string().max(600).optional(),
 });
 
 /**
- * Handles generation. For `scope: "all"` the free trial is used once and
- * every active style is generated. For `scope: "single"`, the selected
- * style is generated, consuming either the free trial (once) or a credit.
+ * Starts one or more designs from an uploaded photo.
+ *
+ * Same pipeline the messenger bots use, so a design created in Telegram and one
+ * created here are indistinguishable: same record, same credits, same shopping
+ * list with marketplace links.
  */
 export async function POST(req: NextRequest) {
   let user;
   try {
     user = await requireUser(req);
   } catch (e) {
-    if (e instanceof AuthError) {
-      return NextResponse.json({ error: e.code }, { status: 401 });
-    }
+    if (e instanceof AuthError) return NextResponse.json({ error: e.code }, { status: 401 });
     throw e;
   }
 
@@ -37,23 +43,23 @@ export async function POST(req: NextRequest) {
   const parsed = schema.safeParse({
     styleId: (form.get("styleId") as string) || undefined,
     scope: (form.get("scope") as string) || "single",
+    instruction: (form.get("instruction") as string) || undefined,
   });
-  if (!parsed.success) {
-    return NextResponse.json({ error: "bad_request" }, { status: 400 });
-  }
+  if (!parsed.success) return NextResponse.json({ error: "bad_request" }, { status: 400 });
 
-  if (!file.type.startsWith("image/")) {
-    return NextResponse.json({ error: "not_image" }, { status: 400 });
-  }
+  if (!file.type.startsWith("image/")) return NextResponse.json({ error: "not_image" }, { status: 400 });
+
+  const maxMb = await getSettingNumber("max_original_mb", 20);
+  if (file.size > maxMb * 1024 * 1024) return NextResponse.json({ error: "too_large" }, { status: 413 });
 
   const buffer = Buffer.from(await file.arrayBuffer());
   const savedUpload = await saveUpload(buffer, file.type);
   const originalId = savedUpload.id;
   const originalUrl = savedUpload.url;
 
-  const styles = await activeStyles();
+  const styles: Style[] = await activeStyles();
   let targetStyles: Style[] = [];
-  let scope = parsed.data.scope;
+  const scope = parsed.data.scope;
 
   if (scope === "single") {
     const st = styles.find((s) => s.id === parsed.data.styleId);
@@ -63,140 +69,57 @@ export async function POST(req: NextRequest) {
     targetStyles = styles;
   }
 
-  // While testing we grant unlimited generations (no credits, no trial limit).
-  const unlimited = await isUnlimitedMode();
+  const charge = await authorizeGeneration(user, scope);
+  if (!charge.ok) {
+    return NextResponse.json({ error: charge.error }, { status: charge.error === "no_trial" ? 403 : 402 });
+  }
 
-  // Determine how this generation is "paid for".
-  let consumed: Generation["mode"] = unlimited ? "unlimited" : "trial";
-
-  if (!unlimited) {
-    if (scope === "single") {
-      if (!user.trialUsed) {
-        consumed = "trial";
-        await mutate((d) => {
-          const u = d.users.find((x) => x.id === user.id);
-          if (u) u.trialUsed = true;
-        });
-      } else {
-        const ok = await spendCredit(user.id);
-        if (!ok) return NextResponse.json({ error: "no_credits" }, { status: 402 });
-        consumed = "credit";
-      }
-    } else {
-      // Trial "all" scope: mark trial used. All styles rendered free once.
-      if (user.trialUsed) {
-        return NextResponse.json({ error: "no_trial" }, { status: 403 });
-      }
-      consumed = "trial";
-      await mutate((d) => {
-        const u = d.users.find((x) => x.id === user.id);
-        if (u) u.trialUsed = true;
+  const generations = [];
+  for (const style of targetStyles) {
+    try {
+      const payload = await runStyleGeneration({
+        user,
+        style,
+        source: { buffer, mime: file.type },
+        originalId,
+        originalUrl,
+        consumed: charge.consumed,
+        instruction: parsed.data.instruction || null,
+        origin: "web",
+      });
+      generations.push(payload);
+    } catch (e) {
+      generations.push({
+        id: "",
+        styleId: style.id,
+        styleSlug: style.slug,
+        styleName: { ru: style.name.ru, en: style.name.en },
+        originalUrl,
+        resultUrl: originalUrl,
+        status: "failed",
+        provider: "—",
+        mode: charge.consumed,
+        demoConfig: null,
+        note: null,
+        error: e instanceof Error ? e.message : "unknown",
+        kind: "design",
+        instruction: parsed.data.instruction || null,
+        parentGenerationId: null,
+        changedCategories: [],
+        shopping: { items: [], mode: "list", detector: "off", note: null, updatedAt: Date.now() },
+        published: false,
+        createdAt: Date.now(),
       });
     }
   }
 
-  const mode = await generationMode();
-  const isDemo = mode === "demo";
-  const generations: Generation[] = [];
-
-  const plans = await Promise.all(
-    targetStyles.map(async (st) => ({ st, plan: await planGeneration(st) }))
-  );
-
-  await mutate((d) => {
-    for (const { st, plan } of plans) {
-      const g: Generation = {
-        id: uid("gen"),
-        userId: user.id,
-        styleId: st.id,
-        originalId,
-        originalUrl,
-        resultUrl: null,
-        status: isDemo ? "done" : "processing",
-        error: null,
-        mode: consumed,
-        provider: plan.provider,
-        createdAt: now(),
-        published: false,
-      };
-      d.generations.push(g);
-      generations.push(g);
-    }
+  const { isUnlimitedMode } = await import("@/lib/config");
+  return NextResponse.json({
+    ok: true,
+    scope,
+    consumed: charge.consumed,
+    unlimited: await isUnlimitedMode(),
+    isDemo: generations.every((g) => g.status === "done" && g.resultUrl === g.originalUrl),
+    generations,
   });
-
-  // For real providers, actually run the generation and persist the result.
-  const payload = [];
-  for (const g of generations) {
-    const st = targetStyles.find((s) => s.id === g.styleId)!;
-    const plan = await planGeneration(st);
-    let status = g.status;
-    let resultUrl = isDemo ? originalUrl : null;
-    let provider = g.provider;
-    let demoConfig = plan.demoConfig;
-    let note = plan.note;
-
-    if (!isDemo) {
-      try {
-        const res = await executeRealGeneration(plan, buffer, file.type);
-        if (res) {
-          resultUrl = res.resultUrl;
-          provider = res.provider;
-          status = "done";
-          note = "Готово.";
-          await mutate((d) => {
-            const rec = d.generations.find((x) => x.id === g.id);
-            if (rec) {
-              rec.status = "done";
-              rec.resultUrl = res.resultUrl;
-              rec.provider = res.provider;
-              rec.error = null;
-            }
-          });
-        } else {
-          // Real provider selected but no API key configured — fall back to a
-          // demo preview so the user is never stuck without a result.
-          resultUrl = originalUrl;
-          provider = "Demo (нет ключа)";
-          status = "done";
-          demoConfig = st.config;
-          note = "Ключ ИИ не задан — показан демо-предпросмотр.";
-          await mutate((d) => {
-            const rec = d.generations.find((x) => x.id === g.id);
-            if (rec) {
-              rec.status = "done";
-              rec.resultUrl = originalUrl;
-              rec.provider = provider;
-            }
-          });
-        }
-      } catch (e) {
-        status = "failed";
-        note = "Ошибка генерации: " + (e instanceof Error ? e.message : "unknown");
-        await mutate((d) => {
-          const rec = d.generations.find((x) => x.id === g.id);
-          if (rec) {
-            rec.status = "failed";
-            rec.error = e instanceof Error ? e.message : "unknown";
-          }
-        });
-      }
-    }
-
-    payload.push({
-      id: g.id,
-      styleId: g.styleId,
-      styleSlug: st.slug,
-      originalUrl,
-      resultUrl,
-      status,
-      provider,
-      mode: g.mode,
-      demoConfig,
-      note,
-      consumed,
-      published: false,
-    });
-  }
-
-  return NextResponse.json({ ok: true, scope, consumed, isDemo, unlimited, generations: payload });
 }

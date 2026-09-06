@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useLocale } from "@/components/locale-context";
 import { t } from "@/lib/i18n";
+import DesignItems from "@/components/DesignItems";
+import type { PublicShopping } from "@/lib/types";
 
 type Item = {
   id: string;
@@ -13,6 +15,8 @@ type Item = {
   resultUrl: string;
   provider: string;
   createdAt: number;
+  /** Present only when the service enabled public shopping links. */
+  shopping?: PublicShopping | null;
 };
 
 export default function GalleryPage() {
@@ -69,6 +73,11 @@ export default function GalleryPage() {
                 <img src={it.resultUrl} alt={nameOf(it)} loading="lazy" />
                 <div className="gallery-overlay">
                   <span className="chip">{nameOf(it)}</span>
+                  {!!it.shopping?.items.length && (
+                    <span className="chip">
+                      🛒 {it.shopping.items.length}
+                    </span>
+                  )}
                 </div>
               </div>
             </button>
@@ -118,6 +127,19 @@ export default function GalleryPage() {
                 ⬇ {t(locale, "studio_download")}
               </a>
             </div>
+
+            {/* Details of the design and where to buy them (owner opt-in). */}
+            {!!active.shopping?.items.length && (
+              <div style={{ marginTop: 16 }}>
+                <DesignItems
+                  items={active.shopping.items}
+                  imageUrl={active.resultUrl}
+                  mode={active.shopping.mode}
+                  hideMeta
+                  detector="ai"
+                />
+              </div>
+            )}
           </div>
         </div>
       )}

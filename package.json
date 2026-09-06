@@ -6,7 +6,10 @@
     "dev": "next dev -H 0.0.0.0",
     "build": "next build",
     "start": "next start -H 0.0.0.0",
-    "lint": "next lint"
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "bots:poll": "node scripts/bots-poller.mjs",
+    "selftest": "node scripts/selftest.mjs"
   },
   "dependencies": {
     "@upstash/redis": "^1.38.4",

@@ -30,9 +30,12 @@ export type GenerationPlan = {
   note: string;
 };
 
-export async function planGeneration(style: Style): Promise<GenerationPlan> {
+export async function planGeneration(
+  style: Style,
+  opts?: { promptOverride?: string | null; instructionSummary?: string | null }
+): Promise<GenerationPlan> {
   const mode = await generationMode();
-  const prompt = buildInteriorEditPrompt(style.name.en, style.description.en);
+  const prompt = opts?.promptOverride || buildInteriorEditPrompt(style.name.en, style.description.en);
 
   switch (mode) {
     case "compatible": {
@@ -42,7 +45,9 @@ export async function planGeneration(style: Style): Promise<GenerationPlan> {
         mode,
         demoConfig: null,
         prompt,
-        note: "Перерисовываем интерьер, сохраняя планировку...",
+        note: opts?.instructionSummary
+          ? `Правим только: ${opts.instructionSummary}…`
+          : "Перерисовываем интерьер, сохраняя планировку...",
       };
     }
     case "replicate": {

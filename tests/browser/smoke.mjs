@@ -170,6 +170,44 @@ try {
   await mobileDialog.getByRole('button', { name: 'Закрыть просмотр' }).tap();
   await expect(mobileDialog).toHaveCount(0);
   assert.equal(requests.length, 1);
+  // UI-only Telegram fixture. Backend signatures, approval and replay are tested separately.
+  let approved = false;
+  let authStarts = 0;
+  const purposes = new Map();
+  await page.route('**/api/auth/providers', route => route.fulfill({ json: { telegram: { available: true, username: 'interier_home_bot' } } }));
+  await page.route('**/api/auth/telegram/start', route => {
+    const payload = route.request().postDataJSON();
+    const id = (++authStarts).toString(16).padStart(32, '0');
+    purposes.set(id, payload.purpose);
+    return route.fulfill({ json: { ok: true, challenge: { id, secret: 'b'.repeat(64), code: 'ABCDEF', expiresAt: Date.now() + 600000, botUrl: `https://t.me/interier_home_bot?start=auth_${id}` } } });
+  });
+  await page.route('**/api/auth/telegram/poll', route => {
+    const payload = route.request().postDataJSON();
+    const status = payload.cancel ? 'denied' : !approved ? 'pending' : purposes.get(payload.id) === 'link' ? 'linked' : 'authenticated';
+    return route.fulfill({ json: { ok: true, status, ...(status === 'authenticated' ? { token } : {}) } });
+  });
+  await page.goto(`${base}/account${token ? `?ses=${encodeURIComponent(token)}` : ''}`);
+  const linkTelegram = page.getByRole('button', { name: 'Подтвердить привязку Telegram', exact: true });
+  await expect(linkTelegram).toBeEnabled(); await linkTelegram.click();
+  await expect(page.locator('.telegram-code')).toHaveText('ABCDEF');
+  assert.ok(!(await page.getByRole('link', { name: /Открыть бота/ }).getAttribute('href')).includes('b'.repeat(64)));
+  assert.ok(!(await page.content()).includes('b'.repeat(64)), 'polling secret must not appear in HTML');
+  await page.getByRole('button', { name: 'Отменить вход', exact: true }).click();
+  await expect(page.locator('.telegram-code')).toHaveCount(0);
+  await linkTelegram.click(); await expect(page.locator('.telegram-code')).toBeVisible();
+  approved = true;
+  await expect(page.getByText('Telegram подтверждён и привязан.', { exact: true })).toBeVisible();
+  assert.equal(purposes.get('2'.padStart(32, '0')), 'link');
+  approved = false;
+  await context.clearCookies();
+  await page.evaluate(() => sessionStorage.clear());
+  await page.goto(`${base}/login`);
+  const telegramSignIn = page.getByRole('button', { name: 'Войти через Telegram', exact: true });
+  await expect(telegramSignIn).toBeEnabled(); await telegramSignIn.click();
+  await expect(page.locator('.telegram-code')).toBeVisible(); approved = true;
+  await page.waitForURL(/\/studio/);
+  assert.equal(requests.length, 1, 'Telegram sign-in/viewing must not call generation');
+
   // Real local API checks: a self-asserted identity and a referral must not mint spendable access.
   const headers = token ? { 'x-session-token': token } : {};
   const adminBefore = (await (await context.request.get(`${base}/api/auth/me`, { headers })).json()).user;

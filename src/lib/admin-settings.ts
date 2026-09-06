@@ -10,6 +10,7 @@ import { activeProfileForConfig, getTestProfile } from "./generation/model-catal
 const schema = z.object({
   generation_mode: z.enum(["demo", "compatible", "replicate"]).optional(),
   free_credits: z.string().regex(/^\d{1,6}$/).optional(),
+  daily_free_image_limit: z.string().regex(/^\d{1,5}$/).optional(),
   reward_telegram: z.string().regex(/^\d{1,6}$/).optional(),
   reward_vk: z.string().regex(/^\d{1,6}$/).optional(),
   reward_referral: z.string().regex(/^\d{1,6}$/).optional(),
@@ -28,6 +29,7 @@ export function adminSettingsView(d: DbShape) {
   return {
     generation_mode: config.mode,
     free_credits: values.free_credits || "0",
+    daily_free_image_limit: values.daily_free_image_limit ?? "10",
     reward_telegram: values.reward_telegram || "1",
     reward_vk: values.reward_vk || "1",
     reward_referral: values.reward_referral || "1",

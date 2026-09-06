@@ -19,6 +19,7 @@ VERCEL= VERCEL_ENV= \
 UPSTASH_REDIS_REST_URL= UPSTASH_REDIS_REST_TOKEN= \
 KV_REST_API_URL= KV_REST_API_TOKEN= \
 BLOB_STORE_ID= BLOB_READ_WRITE_TOKEN= \
+TELEGRAM_BOT_TOKEN= AUTH_PUBLIC_URL= VERCEL_AUTOMATION_BYPASS_SECRET= \
 DATABASE_PATH="./data/model-lab-smoke-$(date +%s).json" \
 ADMIN_EMAIL=model-lab-smoke@example.test \
 ADMIN_PASSWORD=local-model-lab-only-2026 \
@@ -36,7 +37,7 @@ In another terminal:
 TEST_BASE_URL=http://127.0.0.1:3000 npm run test:browser
 ```
 
-The script refuses non-local hosts and checks the QA admin and file storage first. It intercepts generation/history/gallery requests and uses synthetic PNGs. It checks model/variant selection, duplicate-submit prevention, precise before/after clipping, keyboard/mouse/touch interaction, enlargement, zoom, modal close/focus restoration and history reopening. It also checks the real local registration API: submitted verification/admin flags are ignored, an unverified account cannot generate or claim rewards, and an unverified referral does not credit the inviter. It does **not** verify real provider quality, delivery of an email/social confirmation, or an iOS/Android binary.
+The script refuses non-local hosts and checks the QA admin and file storage first. It intercepts generation/history/gallery requests and uses synthetic PNGs. It checks model/variant selection, duplicate-submit prevention, precise before/after clipping, keyboard/mouse/touch interaction, enlargement, zoom, modal close/focus restoration and history reopening. It also checks the real local registration API: submitted verification/admin flags are ignored, an unverified account cannot generate or claim rewards, and an unverified referral does not credit the inviter. It also exercises the Telegram UI with simulated challenge/approval responses. Server tests separately verify Telegram webhook authentication, confirmation, replay protection and account linking. It does **not** verify real provider quality, delivery of a live Telegram/email confirmation, or an iOS/Android binary.
 
 Screenshots and the local Chromium runtime are under ignored `data/browser-smoke/`. Playwright and Chromium are development dependencies only. If the Playwright CDN is unavailable, the script uses the Chromium binary and NSS/NSPR libraries bundled in the npm package; it does not disable web security. A local browser executable can be provided through `TEST_BROWSER_EXECUTABLE`.
 

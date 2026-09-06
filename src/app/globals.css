@@ -918,3 +918,8 @@ button {
 }
 
 .comparison-presets button, .comparison-toolbar button, .image-viewer-heading button { touch-action: manipulation; }
+
+.telegram-access { margin: 18px 0; padding: 16px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.telegram-challenge { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.telegram-challenge p { margin: 0; }
+.telegram-code { display: block; font-size: 30px; font-variant-numeric: tabular-nums; letter-spacing: .18em; color: var(--brand); }

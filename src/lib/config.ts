@@ -152,6 +152,7 @@ export const DEFAULT_STYLES: Style[] = [
 
 const DEFAULT_SETTINGS: Record<string, string> = {
   free_credits: "0",
+  daily_free_image_limit: "10",
   free_trial_styles: "all", // trial renders all active styles
   max_original_mb: "20",
   reward_telegram: "1",

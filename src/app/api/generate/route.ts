@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { mutate, uid, now } from "@/lib/db";
+import { db, mutate, uid, now } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { activeStyles, isUnlimitedMode } from "@/lib/config";
 import { saveUpload, imageMime, maxOriginalBytes } from "@/app/api/upload/service";
@@ -11,6 +11,8 @@ import { assertDurableDatabase, assertDurableUploads } from "@/lib/storage-confi
 import type { Generation } from "@/lib/types";
 import { assertIdentityVerified } from "@/lib/identity";
 import { assertSameOrigin } from "@/lib/request-origin";
+import { enforceRateLimit } from "@/lib/security-store";
+import { assertFreeImageBudget } from "@/lib/generation/free-quota";
 import { IMAGE_QUALITIES, DEFAULT_IMAGE_QUALITY, supportsImageQuality } from "@/lib/generation/quality";
 import { getTestProfile } from "@/lib/generation/model-catalog";
 import { generationRequestSettings } from "@/lib/generation/request-settings";
@@ -34,6 +36,7 @@ export async function POST(req: NextRequest) {
     assertDurableDatabase();
     assertDurableUploads();
     const user = await requireUser(req);
+    if (!user.isAdmin) await enforceRateLimit("generate-user", user.id, 3, 60_000);
     assertIdentityVerified(user);
     const form = await req.formData().catch(() => null);
     const file = form?.get("file");
@@ -72,6 +75,9 @@ export async function POST(req: NextRequest) {
     if (!unlimited && user.trialUsed && (scope === "all" || user.credits <= 0)) {
       throw new RequestError(scope === "all" ? "no_trial" : "no_credits", "Бесплатная попытка использована или недостаточно генераций.", scope === "all" ? 403 : 402);
     }
+    if (!user.isAdmin) {
+      assertFreeImageBudget(await db(), user, targetStyles.length);
+    }
     const plans = await Promise.all(targetStyles.map(async (st) => ({ st, id: uid("gen"), plan: await planGeneration(st, requestSettings) })));
     const upload = await saveUpload(buffer, mime);
 
@@ -80,6 +86,8 @@ export async function POST(req: NextRequest) {
       const current = d.users.find((u) => u.id === user.id);
       if (!current) throw new AuthError("NOT_AUTHENTICATED");
       assertIdentityVerified(current);
+      if ((testProfile !== undefined || quality !== undefined) && current.isAdmin !== true) throw new RequestError("test_profile_forbidden", "Тестирование доступно только администратору.", 403);
+      assertFreeImageBudget(d, current, targetStyles.length);
       let consumed: Generation["mode"] = "unlimited";
       if (!unlimited || current.isAdmin !== true) {
         if (!current.trialUsed) { current.trialUsed = true; consumed = "trial"; }
@@ -90,7 +98,7 @@ export async function POST(req: NextRequest) {
       const generations: Generation[] = plans.map(({ st, id, plan }) => ({
         id, userId: user.id, styleId: st.id, originalId: upload.id, originalUrl: upload.url,
         resultUrl: isDemo ? upload.url : null, status: isDemo ? "done" : "processing",
-        error: null, mode: consumed, provider: plan.provider, quality: generationQuality, resolution, testProfile, estimatedCostRub: profile?.estimatedRub, createdAt: now(), published: false,
+        error: null, mode: consumed, freeBudgeted: current.isAdmin !== true && consumed === "trial", provider: plan.provider, quality: generationQuality, resolution, testProfile, estimatedCostRub: profile?.estimatedRub, createdAt: now(), published: false,
       }));
       d.generations.push(...generations);
       return { generations, consumed };

@@ -7,6 +7,7 @@ import { verifyPassword, makeSession, setSessionCookie, isSecureRequest } from "
 import { logAuthDiag } from "@/lib/debug";
 import { ensureBoot, ensureAdminAvailable } from "@/lib/boot";
 import { assertSameOrigin } from "@/lib/request-origin";
+import { enforceRateLimit, requestClientBucket } from "@/lib/security-store";
 
 const schema = z.object({
   // Keep validation permissive here: the exact reason is reported as
@@ -19,7 +20,7 @@ const schema = z.object({
 export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
-  try { assertSameOrigin(req); assertDurableDatabase(); return await login(req); }
+  try { assertSameOrigin(req); assertDurableDatabase(); await enforceRateLimit("email-login-ip", requestClientBucket(req), 20, 10 * 60_000); return await login(req); }
   catch (e) { return NextResponse.json({ error: e instanceof RequestError ? e.code : "auth_unavailable", message: safeErrorMessage(e) }, { status: e instanceof RequestError ? e.status : 503 }); }
 }
 
@@ -44,7 +45,8 @@ async function login(req: NextRequest) {
   const email = parsed.data.email.replace(/\s+/g, "").toLowerCase();
   const password = parsed.data.password.replace(/\u00a0/g, " ").trim();
 
-  const user = (await db()).users.find((u) => u.email.trim().toLowerCase() === email);
+  await enforceRateLimit("email-login-account", email, 10, 10 * 60_000);
+  const user = (await db()).users.find((u) => u.email?.trim().toLowerCase() === email);
 
   let ok = false;
   if (user && typeof user.passwordHash === "string" && user.passwordHash.length > 0) {

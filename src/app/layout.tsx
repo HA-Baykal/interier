@@ -11,6 +11,7 @@ import { ensureBootSafe } from "@/lib/boot";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
+  referrer: "no-referrer",
   title: "Interier — Ремонт без дизайнера",
   description:
     "Загрузите фото комнаты и получите реалистичный дизайн-проект в любом стиле. Первая генерация бесплатно.",
@@ -53,6 +54,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   vkGranted: (await grantedRewards(user.id)).vk,
                   isAdmin: user.isAdmin,
         verified: isIdentityVerified(user),
+        telegramLinked: !!user.verifiedIdentities?.some(identity => identity.provider === "telegram"),
                   referralCount: await referralCount(user.id),
                 }
               : null

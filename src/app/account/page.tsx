@@ -29,6 +29,7 @@ export default async function AccountPage({
         vkGranted: rewards.vk,
         isAdmin: user.isAdmin,
         verified: isIdentityVerified(user),
+        telegramLinked: !!user.verifiedIdentities?.some(identity => identity.provider === "telegram"),
         referralCount: await referralCount(user.id),
       }}
     />

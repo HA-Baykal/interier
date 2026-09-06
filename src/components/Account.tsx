@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useLocale } from "./locale-context";
 import { authHeaders } from "@/lib/client-auth";
 import { ClientUser } from "./types";
+import TelegramAccess from "./TelegramAccess";
 
 export default function Account({ initialUser }: { initialUser: ClientUser }) {
   const { t, locale } = useLocale();
@@ -88,7 +89,7 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
   return (
     <div className="container" style={{ paddingTop: 40, paddingBottom: 70 }}>
       <h1 style={{ fontSize: 30, fontWeight: 800 }}>{t("account_title")}</h1>
-      <p className="muted" style={{ marginTop: 6 }}>{user.name} · {user.email}</p>
+      <p className="muted" style={{ marginTop: 6 }}>{user.name}{user.email ? ` · ${user.email}` : ""}</p>
 
       <div className="row" style={{ alignItems: "center", gap: 14, flexWrap: "wrap", marginTop: 20 }}>
         <div className="panel" style={{ minWidth: 220 }}>
@@ -97,11 +98,20 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
         </div>
       </div>
 
+      <div className="panel mt">
+        <h2 style={{ fontSize: 19 }}>{t("tg_account_title")}</h2>
+        {user.telegramLinked ? <p className="ok mt">{t("tg_linked")}</p> : <>
+          <p className="small muted mt">{t(user.isAdmin || user.verified ? "tg_link_help" : "tg_unverified_help")}</p>
+          <TelegramAccess purpose={user.isAdmin || user.verified ? "link" : "login"} onLinked={() => {
+            fetch("/api/auth/me", { headers: authHeaders(), cache: "no-store" }).then(r => r.json()).then(data => { if (data.user) setUser(data.user); });
+          }} />
+        </>}
+      </div>
       {/* Referral */}
       <div className="ref-box mt">
         <h2 style={{ fontSize: 19 }}>{t("account_referral_title")}</h2>
         <p className="muted small" style={{ marginTop: 6 }}>
-          {t("account_referral_desc")} {t("account_invited", { n: user.referralCount })}
+          {t("referrals_pending")} {t("account_invited", { n: user.referralCount })}
         </p>
         <div className="ref-link">
           <input className="input" readOnly value={refLink} onFocus={(e) => e.target.select()} />

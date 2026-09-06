@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db, mutate, uid, now } from "@/lib/db";
 import { hashPassword, makeSession, setSessionCookie, makeReferralCode, isSecureRequest } from "@/lib/auth";
 import { assertSameOrigin } from "@/lib/request-origin";
+import { enforceRateLimit, requestClientBucket } from "@/lib/security-store";
 import { getSettingNumber } from "@/lib/config";
 
 const schema = z.object({
@@ -17,12 +18,13 @@ const schema = z.object({
 export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
-  try { assertSameOrigin(req); assertDurableDatabase(); return await register(req); }
+  try { assertSameOrigin(req); assertDurableDatabase(); await enforceRateLimit("email-register-ip", requestClientBucket(req), 5, 60 * 60_000); return await register(req); }
   catch (e) { return NextResponse.json({ error: e instanceof RequestError ? e.code : "auth_unavailable", message: safeErrorMessage(e) }, { status: e instanceof RequestError ? e.status : 503 }); }
 }
 
 async function register(req: NextRequest) {
   const { logAuthDiag } = await import("@/lib/debug");
+  await enforceRateLimit("email-register-global", "all", 100, 24 * 60 * 60_000);
   await logAuthDiag(req, "register");
   // Cold API instances never render the layout: make sure defaults are seeded.
   const { ensureBoot } = await import("@/lib/boot");

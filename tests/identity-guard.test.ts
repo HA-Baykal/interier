@@ -15,6 +15,7 @@ before(async () => {
   generate = await import("../src/app/api/generate/route"); rewards = await import("../src/app/api/rewards/verify/route");
 });
 beforeEach(async () => {
+  (await import("../src/lib/security-store")).resetSecurityMemoryForTests();
   await db.resetDb(); await config.ensureSeeded(); await config.setSetting("compatible_api_key", "sk_identity_test");
   await db.mutate(d => {
     d.users.push({ ...TEST_USER, isAdmin: false, identityVerifiedAt: null, identityVerifiedBy: null, credits: 0 });

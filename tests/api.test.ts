@@ -18,6 +18,7 @@ before(async () => {
   settings = await import("../src/app/api/admin/settings/route");
 });
 beforeEach(async () => {
+  (await import("../src/lib/security-store")).resetSecurityMemoryForTests();
   await store.resetDb();
   await seed.ensureSeeded();
   await store.mutate((d) => {
@@ -363,4 +364,20 @@ test("a direct Nano/WebP request is rejected before upload, reservation or provi
   assert.equal((await res.json()).error, "model_image_type");
   assert.equal(calls, 0);
   assert.equal((await store.db()).generations.length, 0);
+});
+
+test("failed free starts consume the rolling image budget and cannot be retried into unlimited upstream spending", async (t) => {
+  await seed.setSetting("compatible_api_key", "sk_free_budget_fixture");
+  await seed.setSetting("daily_free_image_limit", "1");
+  await store.mutate(d => { d.users[0].isAdmin = false; d.users[0].credits = 0; });
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => { calls++; return Response.json({ error: "upstream temporarily unavailable" }, { status: 503 }); });
+  const first = await (await generate.POST(request())).json();
+  assert.equal(first.generations[0].status, "failed");
+  assert.equal((await store.db()).generations[0].freeBudgeted, true);
+  assert.equal((await store.db()).users[0].trialUsed, false, "the personal trial is refundable, not the global safety budget");
+  const retry = await generate.POST(request());
+  assert.equal(retry.status, 429);
+  assert.equal((await retry.json()).error, "free_budget_exhausted");
+  assert.equal(calls, 1);
 });

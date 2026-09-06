@@ -37,7 +37,7 @@ export type Package = {
 
 export type User = {
   id: string;
-  email: string;
+  email: string | null;
   passwordHash: string;
   name: string;
   createdAt: number;
@@ -50,6 +50,7 @@ export type User = {
   referralCode: string;
   referredBy: string | null;
   isAdmin: boolean;
+  verifiedIdentities?: { provider: "telegram" | "vk" | "max"; subject: string; verifiedAt: number }[];
   identityVerifiedAt?: number | null;
   identityVerifiedBy?: "email" | "telegram" | "vk" | "max" | null;
 };
@@ -80,6 +81,8 @@ export type Generation = {
   /** Public-tariff estimate, never reported as an actual debit. */
   estimatedCostRub?: number;
   durationMs?: number;
+  /** Counts reserved free images, including failed starts, for the rolling safety limit. */
+  freeBudgeted?: boolean;
   createdAt: number;
   /** Whether the owner opted to showcase this design in the public gallery. */
   published: boolean;
@@ -108,7 +111,7 @@ export type Reward = {
 export type Referral = {
   id: string;
   referrerId: string;
-  referredEmail: string;
+  referredEmail: string | null;
   referredUserId: string | null;
   rewarded: boolean;
   createdAt: number;

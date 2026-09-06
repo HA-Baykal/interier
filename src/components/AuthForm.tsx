@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useLocale } from "./locale-context";
 import { saveToken, withToken } from "@/lib/client-auth";
+import TelegramAccess from "./TelegramAccess";
 
 export default function AuthForm({
   mode,
@@ -53,6 +54,8 @@ export default function AuthForm({
       <div className="panel">
         <h2>{t(mode === "login" ? "auth_login_title" : "auth_register_title")}</h2>
         <div className="sub">{t("tagline")}</div>
+        <TelegramAccess referralCode={refCode || undefined} />
+        <p className="small muted">{t("tg_email_pending")}</p>
         <form onSubmit={submit}>
           {mode === "register" && (
             <div className="field">

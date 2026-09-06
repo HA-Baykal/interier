@@ -23,7 +23,7 @@ export function storageMode(): "redis" | "file" | "memory" {
   return memoryFallback || isVercel() ? "memory" : "file";
 }
 
-async function getRedis(): Promise<Redis> {
+export async function getRedis(): Promise<Redis> {
   const cfg = redisConnection();
   if (!cfg.configured) throw new RequestError("database_not_configured", `Missing Redis variables: ${cfg.missing.join(", ")}`, 503);
   let url: URL;

@@ -7,10 +7,12 @@ import { authHeaders } from "@/lib/client-auth";
 import { ClientPackage, ClientStyle } from "./types";
 import ModelLab from "./ModelLab";
 import GlobalModelSettings from "./GlobalModelSettings";
+import TelegramSetup from "./TelegramSetup";
 
 type Settings = {
   generation_mode: string;
   free_credits: string;
+  daily_free_image_limit: string;
   reward_telegram: string;
   reward_vk: string;
   reward_referral: string;
@@ -146,6 +148,7 @@ export default function Admin({
 
       <GlobalModelSettings activeProfile={form.active_profile || null} enabled={form.compatible_provider === "genapi" && form.compatible_configured}
         onApplied={next => { setForm(next); setDiagnostics(null); router.refresh(); }} />
+      <TelegramSetup />
       <ModelLab styles={styles} enabled={settings.compatible_provider === "genapi" && settings.compatible_configured} />
 
       {/* Stats */}
@@ -194,6 +197,11 @@ export default function Admin({
           </div>
         </div>
 
+        <div className="field mt">
+          <label htmlFor="daily-free-images">{t("admin_free_daily_limit")}</label>
+          <input id="daily-free-images" className="input" type="number" min="0" max="99999" value={form.daily_free_image_limit} onChange={field("daily_free_image_limit")} />
+          <p className="small muted">{t("admin_free_daily_help")}</p>
+        </div>
         {/* Path #1 aggregator config */}
         <div className="panel mt" style={{ background: "rgba(107,124,255,0.05)", borderColor: "var(--brand)" }}>
           <div className="row" style={{ justifyContent: "space-between" }}>

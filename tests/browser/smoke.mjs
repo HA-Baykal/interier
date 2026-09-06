@@ -170,6 +170,33 @@ try {
   await mobileDialog.getByRole('button', { name: 'Закрыть просмотр' }).tap();
   await expect(mobileDialog).toHaveCount(0);
   assert.equal(requests.length, 1);
+  // Real local API checks: a self-asserted identity and a referral must not mint spendable access.
+  const headers = token ? { 'x-session-token': token } : {};
+  const adminBefore = (await (await context.request.get(`${base}/api/auth/me`, { headers })).json()).user;
+  const outsider = await browser.newContext();
+  const registration = await outsider.request.post(`${base}/api/auth/register`, { data: {
+    email: `unverified-${Date.now()}@example.test`, password: 'local-unverified-only-2026', name: 'Unverified QA',
+    referralCode: adminBefore.referralCode, isAdmin: true, identityVerifiedAt: Date.now(), identityVerifiedBy: 'telegram', telegramId: 123,
+  } });
+  assert.equal(registration.status(), 200);
+  const registered = await registration.json();
+  assert.equal(registered.verificationRequired, true);
+  assert.equal(registered.referralApplied, false);
+  const outsiderHeaders = { 'x-session-token': registered.token };
+  const me = (await (await outsider.request.get(`${base}/api/auth/me`, { headers: outsiderHeaders })).json()).user;
+  assert.equal(me.isAdmin, false); assert.equal(me.verified, false); assert.equal(me.telegramId, null);
+  const blocked = await outsider.request.post(`${base}/api/generate`, { headers: outsiderHeaders, multipart: {
+    file: { name: 'room.png', mimeType: 'image/png', buffer: upload }, scope: 'single', styleId: 'style_modern', verified: 'true',
+  } });
+  assert.equal(blocked.status(), 403); assert.equal((await blocked.json()).error, 'verification_required');
+  const bonus = await outsider.request.post(`${base}/api/rewards/verify`, { headers: outsiderHeaders, data: { channel: 'telegram', username: 'invented' } });
+  assert.equal(bonus.status(), 403);
+  const adminAfter = (await (await context.request.get(`${base}/api/auth/me`, { headers })).json()).user;
+  assert.equal(adminAfter.credits, adminBefore.credits);
+  const outsiderPage = await outsider.newPage();
+  await outsiderPage.goto(`${base}/studio?ses=${encodeURIComponent(registered.token)}`);
+  await expect(outsiderPage.getByRole('button', { name: 'Сгенерировать выбранный стиль', exact: true })).toBeDisabled();
+  await outsider.close();
   assert.deepEqual(pageErrors, []);
   await mobileContext.close(); await context.close();
   console.log('PASS: model/variant selection, one-click/one-request guard, desktop drag and keyboard, exact before/after clipping, no crop/stretch leakage, modal zoom/close/focus restoration, history reopening, mobile touch and gallery reuse. No real provider request made.');

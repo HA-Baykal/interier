@@ -66,6 +66,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
   user: ClientUser; styles: ClientStyle[]; aiConfigured: boolean; isDemo: boolean; initialUnlimited: boolean; activeProfileLabel: string; activeProfileEstimate?: number;
 }) {
   const { t, locale } = useLocale();
+  const verified = user.isAdmin || user.verified === true;
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const camRef = useRef<HTMLInputElement>(null);
@@ -121,6 +122,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
   }
 
   async function generate(scope: "single" | "all") {
+    if (!verified) { setError(t("auth_verification_required")); return; }
     if (!file) {
       setError(t("studio_upload"));
       return;
@@ -291,6 +293,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
           </div>
 
           <div className="panel mt">
+            {!verified && <p className="err" role="status">{t("auth_verification_required")}</p>}
             <div className="row" style={{ flexWrap: "wrap", gap: 10 }}>
               <span className="chip">{creditsLabel}</span>
               {unlimited && <span className="chip" style={{ color: "var(--success)" }}>♾️ {t("studio_test_unlimited")}</span>}
@@ -305,7 +308,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
               <button
                 className="btn btn-primary"
                 style={{ width: "100%" }}
-                disabled={generating || !file}
+                disabled={generating || !file || !verified}
                 onClick={() => generate("single")}
               >
                 {generating ? t("studio_processing") : t("studio_gen_single")}
@@ -316,7 +319,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
                 <button
                   className="btn btn-ghost"
                   style={{ width: "100%" }}
-                  disabled={generating || !file}
+                  disabled={generating || !file || !verified}
                   onClick={() => generate("all")}
                 >
                   {generating ? t("studio_processing") : user.isAdmin && !isDemo && activeProfileEstimate !== undefined
@@ -414,7 +417,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
                 >
                   ⬇ {t("studio_download")}
                 </a>}
-                <button className="btn btn-primary btn-sm" onClick={() => generate("single")} disabled={generating}>
+                <button className="btn btn-primary btn-sm" onClick={() => generate("single")} disabled={generating || !verified}>
                   {t("studio_regenerate")}
                 </button>
               </div>

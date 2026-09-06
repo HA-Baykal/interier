@@ -3,6 +3,7 @@ import { requireAdmin, AuthError } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { adminSettingsView, updateAdminSettings } from "@/lib/admin-settings";
 import { RequestError, safeErrorMessage } from "@/lib/errors";
+import { assertSameOrigin } from "@/lib/request-origin";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -28,6 +29,7 @@ export async function GET(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   try {
+    assertSameOrigin(req);
     await requireAdmin(req);
     const settings = await updateAdminSettings(await req.json().catch(() => null));
     return NextResponse.json({ ok: true, settings }, { headers: { "Cache-Control": "private, no-store" } });

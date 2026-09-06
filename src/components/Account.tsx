@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useLocale } from "./locale-context";
 import { authHeaders } from "@/lib/client-auth";
@@ -8,7 +7,6 @@ import { ClientUser } from "./types";
 
 export default function Account({ initialUser }: { initialUser: ClientUser }) {
   const { t, locale } = useLocale();
-  const router = useRouter();
   const [user, setUser] = useState(initialUser);
   const [copied, setCopied] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -70,24 +68,6 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
     }
   }
 
-  async function verify(channel: "telegram" | "vk") {
-    const res = await fetch("/api/rewards/verify", {
-      method: "POST",
-      headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ channel, username: "demo_user" }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (data.ok) {
-      setToast(`+${data.credits} ✦`);
-      fetch("/api/auth/me", { headers: authHeaders() })
-        .then((r) => r.json())
-        .then((d) => d.user && setUser(d.user));
-      router.refresh();
-    } else if (data.already) {
-      setToast(t("rewards_connected"));
-    }
-  }
-
   async function togglePublish(id: string) {
     const next = !pubIds[id];
     try {
@@ -132,6 +112,7 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
       </div>
 
       {/* Rewards */}
+      <p className="small muted mt">{t("rewards_not_configured")}</p>
       <div className="panel mt">
         <h2 style={{ fontSize: 19 }}>{t("rewards_title")}</h2>
         <p className="muted small" style={{ marginTop: 6 }}>{t("rewards_demo_note")}</p>
@@ -143,7 +124,7 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
               <span className="chip" style={{ color: "var(--success)" }}>✓ {t("rewards_connected")}</span>
             ) : (
               <div className="row" style={{ flexWrap: "wrap" }}>
-                <button className="btn btn-ghost btn-sm" onClick={() => verify("telegram")}>
+                <button className="btn btn-ghost btn-sm" disabled title={t("rewards_not_configured")}>
                   {t("rewards_connect")}
                 </button>
               </div>
@@ -156,7 +137,7 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
               <span className="chip" style={{ color: "var(--success)" }}>✓ {t("rewards_connected")}</span>
             ) : (
               <div className="row" style={{ flexWrap: "wrap" }}>
-                <button className="btn btn-ghost btn-sm" onClick={() => verify("vk")}>
+                <button className="btn btn-ghost btn-sm" disabled title={t("rewards_not_configured")}>
                   {t("rewards_connect")}
                 </button>
               </div>

@@ -36,7 +36,7 @@ In another terminal:
 TEST_BASE_URL=http://127.0.0.1:3000 npm run test:browser
 ```
 
-The script refuses non-local hosts and checks the QA admin and file storage first. It intercepts generation/history/gallery requests and uses synthetic PNGs. It checks model/variant selection, duplicate-submit prevention, precise before/after clipping, keyboard/mouse/touch interaction, enlargement, zoom, modal close/focus restoration and history reopening. It does **not** verify real provider quality or an iOS/Android binary.
+The script refuses non-local hosts and checks the QA admin and file storage first. It intercepts generation/history/gallery requests and uses synthetic PNGs. It checks model/variant selection, duplicate-submit prevention, precise before/after clipping, keyboard/mouse/touch interaction, enlargement, zoom, modal close/focus restoration and history reopening. It also checks the real local registration API: submitted verification/admin flags are ignored, an unverified account cannot generate or claim rewards, and an unverified referral does not credit the inviter. It does **not** verify real provider quality, delivery of an email/social confirmation, or an iOS/Android binary.
 
 Screenshots and the local Chromium runtime are under ignored `data/browser-smoke/`. Playwright and Chromium are development dependencies only. If the Playwright CDN is unavailable, the script uses the Chromium binary and NSS/NSPR libraries bundled in the npm package; it does not disable web security. A local browser executable can be provided through `TEST_BROWSER_EXECUTABLE`.
 

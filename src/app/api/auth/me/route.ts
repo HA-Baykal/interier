@@ -1,3 +1,4 @@
+import { isIdentityVerified } from "@/lib/identity";
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { referralCount, grantedRewards } from "@/lib/billing";
@@ -22,6 +23,7 @@ export async function GET(req: NextRequest) {
       telegramGranted: rewards.telegram,
       vkGranted: rewards.vk,
       isAdmin: user.isAdmin,
+        verified: isIdentityVerified(user),
       referralCount: await referralCount(user.id),
     },
   });

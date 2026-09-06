@@ -4,7 +4,7 @@ import { RequestError, safeErrorMessage } from "@/lib/errors";
 import { z } from "zod";
 import { db, mutate, uid, now } from "@/lib/db";
 import { hashPassword, makeSession, setSessionCookie, makeReferralCode, isSecureRequest } from "@/lib/auth";
-import { grantReferralBonus } from "@/lib/billing";
+import { assertSameOrigin } from "@/lib/request-origin";
 import { getSettingNumber } from "@/lib/config";
 
 const schema = z.object({
@@ -17,7 +17,7 @@ const schema = z.object({
 export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
-  try { assertDurableDatabase(); return await register(req); }
+  try { assertSameOrigin(req); assertDurableDatabase(); return await register(req); }
   catch (e) { return NextResponse.json({ error: e instanceof RequestError ? e.code : "auth_unavailable", message: safeErrorMessage(e) }, { status: e instanceof RequestError ? e.status : 503 }); }
 }
 
@@ -43,7 +43,6 @@ async function register(req: NextRequest) {
 
   // Resolve referral
   let referredBy: string | null = null;
-  let referralOutcome = { ok: false };
   const rc = referralCode?.trim();
   if (rc) {
     const referrer = d.users.find((u) => u.referralCode.toLowerCase() === rc.toLowerCase());
@@ -74,15 +73,17 @@ async function register(req: NextRequest) {
       referralCode: draft.users.some((u) => u.referralCode === newReferralCode) ? `${newReferralCode}-${uid().slice(0, 8)}` : newReferralCode,
       referredBy,
       isAdmin: false,
+      identityVerifiedAt: null, identityVerifiedBy: null,
     });
+    if (referredBy && draft.users.some(user => user.id === referredBy)) {
+      draft.referrals.push({ id: uid("ref"), referrerId: referredBy, referredEmail: emailNorm, referredUserId: userId, rewarded: false, createdAt: now() });
+    }
     return true;
   });
   if (!created) return NextResponse.json({ error: "auth_error_exists" }, { status: 409 });
 
-  // Grant referral bonus to the referrer if applicable
-  if (referredBy) {
-    referralOutcome = await grantReferralBonus(referredBy, emailNorm, userId);
-  }
+  // Referral credit is deferred until a real confirmation flow verifies this account.
+  // Merely registering an arbitrary email must not mint spendable credits for a referrer.
 
   const token = await makeSession(userId);
   setSessionCookie(token, isSecureRequest(req));
@@ -91,6 +92,7 @@ async function register(req: NextRequest) {
     ok: true,
     token,
     credits: freeCredits,
-    referralApplied: referralOutcome.ok,
+    referralApplied: false,
+    verificationRequired: true,
   });
 }

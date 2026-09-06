@@ -11,6 +11,7 @@ export interface ClientUser {
   telegramGranted: boolean;
   vkGranted: boolean;
   isAdmin: boolean;
+  verified?: boolean;
   referralCount: number;
 }
 

@@ -1,3 +1,4 @@
+import { isIdentityVerified } from "@/lib/identity";
 import { redirect } from "next/navigation";
 import Studio from "@/components/Studio";
 import { resolvePageUser } from "@/lib/auth";
@@ -49,12 +50,13 @@ export default async function StudioPage({
         telegramGranted: rewards.telegram,
         vkGranted: rewards.vk,
         isAdmin: user.isAdmin,
+        verified: isIdentityVerified(user),
         referralCount: await referralCount(user.id),
       }}
       styles={styles}
       aiConfigured={generation.aiConfigured}
       isDemo={generation.mode === "demo"}
-      initialUnlimited={await isUnlimitedMode()}
+      initialUnlimited={await isUnlimitedMode(user)}
       activeProfileLabel={profile ? testProfileName(profile.id) : generation.compatible.model}
       activeProfileEstimate={profile?.estimatedRub}
     />

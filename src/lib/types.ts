@@ -50,6 +50,8 @@ export type User = {
   referralCode: string;
   referredBy: string | null;
   isAdmin: boolean;
+  identityVerifiedAt?: number | null;
+  identityVerifiedBy?: "email" | "telegram" | "vk" | "max" | null;
 };
 
 export type Session = {

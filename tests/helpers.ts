@@ -23,5 +23,5 @@ export const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAA
 export const TEST_USER = {
   id: "usr_test", email: "test@example.test", passwordHash: "unused", name: "Test", createdAt: 1,
   credits: 3, trialUsed: false, telegramId: null, telegramUsername: null, vkId: null, vkUsername: null,
-  referralCode: "TEST1234", referredBy: null, isAdmin: true,
+  referralCode: "TEST1234", referredBy: null, isAdmin: true, identityVerifiedAt: 1, identityVerifiedBy: "email" as const,
 };

@@ -1,3 +1,4 @@
+import { isIdentityVerified } from "@/lib/identity";
 import { redirect } from "next/navigation";
 import Account from "@/components/Account";
 import { resolvePageUser } from "@/lib/auth";
@@ -27,6 +28,7 @@ export default async function AccountPage({
         telegramGranted: rewards.telegram,
         vkGranted: rewards.vk,
         isAdmin: user.isAdmin,
+        verified: isIdentityVerified(user),
         referralCount: await referralCount(user.id),
       }}
     />

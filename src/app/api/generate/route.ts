@@ -9,6 +9,8 @@ import { getGenerationSettings, validateCompatibleConfig } from "@/lib/generatio
 import { RequestError, safeErrorMessage } from "@/lib/errors";
 import { assertDurableDatabase, assertDurableUploads } from "@/lib/storage-config";
 import type { Generation } from "@/lib/types";
+import { assertIdentityVerified } from "@/lib/identity";
+import { assertSameOrigin } from "@/lib/request-origin";
 import { IMAGE_QUALITIES, DEFAULT_IMAGE_QUALITY, supportsImageQuality } from "@/lib/generation/quality";
 import { getTestProfile } from "@/lib/generation/model-catalog";
 import { generationRequestSettings } from "@/lib/generation/request-settings";
@@ -28,9 +30,11 @@ const schema = z.object({
 export async function POST(req: NextRequest) {
   let apiKey = "";
   try {
+    assertSameOrigin(req);
     assertDurableDatabase();
     assertDurableUploads();
     const user = await requireUser(req);
+    assertIdentityVerified(user);
     const form = await req.formData().catch(() => null);
     const file = form?.get("file");
     if (!(file instanceof File)) throw new RequestError("file_required", "Выберите фото комнаты.");
@@ -63,7 +67,11 @@ export async function POST(req: NextRequest) {
       validateCompatibleConfig(cfg);
       if (cfg.provider === "genapi") assertGenApiImageType(cfg.model, mime);
     }
-    const unlimited = await isUnlimitedMode();
+    const unlimited = await isUnlimitedMode(user);
+    // Reject exhausted accounts before writing another original to Blob.
+    if (!unlimited && user.trialUsed && (scope === "all" || user.credits <= 0)) {
+      throw new RequestError(scope === "all" ? "no_trial" : "no_credits", "Бесплатная попытка использована или недостаточно генераций.", scope === "all" ? 403 : 402);
+    }
     const plans = await Promise.all(targetStyles.map(async (st) => ({ st, id: uid("gen"), plan: await planGeneration(st, requestSettings) })));
     const upload = await saveUpload(buffer, mime);
 
@@ -71,8 +79,9 @@ export async function POST(req: NextRequest) {
     const { generations, consumed } = await mutate((d) => {
       const current = d.users.find((u) => u.id === user.id);
       if (!current) throw new AuthError("NOT_AUTHENTICATED");
+      assertIdentityVerified(current);
       let consumed: Generation["mode"] = "unlimited";
-      if (!unlimited) {
+      if (!unlimited || current.isAdmin !== true) {
         if (!current.trialUsed) { current.trialUsed = true; consumed = "trial"; }
         else if (scope === "all") throw new RequestError("no_trial", "Бесплатная генерация уже использована.", 403);
         else if (current.credits > 0) { current.credits--; consumed = "credit"; }

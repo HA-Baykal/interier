@@ -1,3 +1,4 @@
+import { isIdentityVerified } from "@/lib/identity";
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import AppShell from "@/components/AppShell";
@@ -51,6 +52,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   telegramGranted: (await grantedRewards(user.id)).telegram,
                   vkGranted: (await grantedRewards(user.id)).vk,
                   isAdmin: user.isAdmin,
+        verified: isIdentityVerified(user),
                   referralCount: await referralCount(user.id),
                 }
               : null

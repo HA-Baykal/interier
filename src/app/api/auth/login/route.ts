@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { verifyPassword, makeSession, setSessionCookie, isSecureRequest } from "@/lib/auth";
 import { logAuthDiag } from "@/lib/debug";
 import { ensureBoot, ensureAdminAvailable } from "@/lib/boot";
+import { assertSameOrigin } from "@/lib/request-origin";
 
 const schema = z.object({
   // Keep validation permissive here: the exact reason is reported as
@@ -18,7 +19,7 @@ const schema = z.object({
 export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
-  try { assertDurableDatabase(); return await login(req); }
+  try { assertSameOrigin(req); assertDurableDatabase(); return await login(req); }
   catch (e) { return NextResponse.json({ error: e instanceof RequestError ? e.code : "auth_unavailable", message: safeErrorMessage(e) }, { status: e instanceof RequestError ? e.status : 503 }); }
 }
 

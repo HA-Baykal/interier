@@ -1,5 +1,5 @@
 import { db, mutate } from "./db";
-import { Package, Style } from "./types";
+import { Package, Style, type User } from "./types";
 import { getGenerationSettings } from "./generation/settings";
 
 /** Default subscriptions shown while payments are not yet attached. */
@@ -200,8 +200,8 @@ export async function setSetting(key: string, value: string) {
 }
 
 /** Whether unlimited (test) generation mode is enabled for the current user. */
-export async function isUnlimitedMode(): Promise<boolean> {
-  return (await getSetting("test_unlimited")) === "1";
+export async function isUnlimitedMode(user: Pick<User, "isAdmin">): Promise<boolean> {
+  return user.isAdmin === true && (await getSetting("test_unlimited")) === "1";
 }
 
 export async function activeStyles(): Promise<Style[]> {

@@ -9,7 +9,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "bots:poll": "node scripts/bots-poller.mjs",
-    "selftest": "node scripts/selftest.mjs"
+    "selftest": "node scripts/selftest.mjs",
+    "doctor": "node scripts/doctor.mjs"
   },
   "dependencies": {
     "@upstash/redis": "^1.38.4",

@@ -6,12 +6,26 @@
  * owner only has to paste tokens in the admin panel and press "Подключить".
  */
 
+import { randomBytes } from "crypto";
 import { getSettingOrEnv, setSetting } from "../config";
 import { BotPlatform } from "../types";
 import { appUrl, maxConfig, platformsStatus, publicBaseUrl, telegramConfig, vkConfig } from "./config";
 
 export function webhookPath(platform: BotPlatform): string {
   return `/api/bots/${platform}/webhook`;
+}
+
+/**
+ * Webhooks must not be open endpoints: anyone who knows the URL could speak to
+ * the bot as any user. Both Telegram (`secret_token`) and MAX (`secret`) echo a
+ * shared secret, so we mint one the first time the owner presses "Подключить".
+ */
+async function ensureWebhookSecret(key: string): Promise<string> {
+  const current = await getSettingOrEnv(key);
+  if (current) return current;
+  const fresh = randomBytes(24).toString("hex");
+  await setSetting(key, fresh);
+  return fresh;
 }
 
 export type SetupResult = { ok: boolean; url?: string; error?: string; detail?: string };
@@ -22,6 +36,7 @@ export async function setupTelegram(hostHint?: string | null): Promise<SetupResu
   const base = await publicBaseUrl(hostHint);
   const url = `${base}${webhookPath("telegram")}`;
 
+  await ensureWebhookSecret("telegram_webhook_secret");
   const { tgSetWebhook, tgMe } = await import("./telegram");
   const res = await tgSetWebhook(url);
   if (!res.ok) return { ok: false, error: res.error, url };
@@ -63,6 +78,7 @@ export async function setupMax(hostHint?: string | null): Promise<SetupResult> {
     return { ok: false, error: "MAX принимает только HTTPS-вебхук: задайте PUBLIC_BASE_URL (https://…)", url: base };
   }
   const url = `${base}${webhookPath("max")}`;
+  await ensureWebhookSecret("max_webhook_secret");
   const r = await import("./max").then((m) => m.maxSetSubscription(url));
   if (!r.ok) return { ok: false, error: r.error, url };
   return { ok: true, url };

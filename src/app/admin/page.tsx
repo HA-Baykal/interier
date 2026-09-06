@@ -2,11 +2,12 @@ import { redirect } from "next/navigation";
 import Admin from "@/components/Admin";
 import AdminBots from "@/components/AdminBots";
 import AdminShopping from "@/components/AdminShopping";
+import AdminPackages from "@/components/AdminPackages";
 import { resolvePageUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { adminSettingsView } from "@/lib/admin-settings";
-import { activeStyles, activePackages } from "@/lib/config";
-import { ClientPackage, ClientStyle } from "@/components/types";
+import { activeStyles } from "@/lib/config";
+import { ClientStyle } from "@/components/types";
 
 export default async function AdminPage({
   searchParams,
@@ -33,18 +34,6 @@ export default async function AdminPage({
     vignette: s.config.vignette,
     active: s.active,
   }));
-  const packages: ClientPackage[] = (await activePackages()).map((p) => ({
-    id: p.id,
-    slug: p.slug,
-    nameRu: p.name.ru,
-    nameEn: p.name.en,
-    descRu: p.description.ru,
-    descEn: p.description.en,
-    credits: p.credits,
-    price: p.price,
-    badge: p.badge ? (p.badge.ru || p.badge.en) : null,
-  }));
-
   return (
     <>
       <Admin
@@ -56,13 +45,13 @@ export default async function AdminPage({
       }}
       settings={adminSettingsView(d)}
       styles={styles}
-      packages={packages}
       env={{
         hasReplicate: !!process.env.REPLICATE_API_TOKEN,
         hasOpenAI: !!process.env.OPENAI_API_KEY,
         hasTogether: !!process.env.TOGETHER_API_KEY || !!process.env.FAL_API_KEY,
       }}
       />
+      <AdminPackages />
       <AdminShopping />
       <AdminBots />
     </>

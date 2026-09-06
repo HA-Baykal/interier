@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ensureBootSafe } from "@/lib/boot";
 import { appUrl, telegramConfig, vkConfig } from "@/lib/bots/config";
 import { getSetting } from "@/lib/config";
+import { webhookPath } from "@/lib/bots/setup";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +31,8 @@ export async function GET(req: NextRequest) {
       username: tg.botUsername,
       startUrl: tg.botUsername ? `https://t.me/${tg.botUsername}` : null,
       hasMiniApp: true,
+      // Telegram is delivered by the login route: one webhook for login + app.
+      webhookPath: webhookPath("telegram"),
     },
     {
       platform: "vk" as const,
@@ -37,6 +40,7 @@ export async function GET(req: NextRequest) {
       username: vk.groupId ? `id${vk.groupId}` : null,
       startUrl: vk.groupId ? `https://vk.com/im?sel=-${vk.groupId}` : null,
       hasMiniApp: false,
+      webhookPath: webhookPath("vk"),
     },
     {
       platform: "max" as const,
@@ -44,6 +48,7 @@ export async function GET(req: NextRequest) {
       username: maxUsername || null,
       startUrl: maxUsername ? `https://max.ru/${maxUsername}` : null,
       hasMiniApp: false,
+      webhookPath: webhookPath("max"),
     },
   ];
 

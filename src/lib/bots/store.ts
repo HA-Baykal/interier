@@ -49,15 +49,17 @@ export async function createBotUser(
 
   const freeCredits = await getSettingNumber("free_credits", 0);
   const handle = (opts.username || String(externalId)).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32);
-  const email = `${platform}_${externalId}@bot.interier.local`;
 
   const id = uid("usr");
   const referralCode = await uniqueReferralCode(handle);
 
   await mutate((d) => {
+    const verifiedAt = now();
     const user: User = {
       id,
-      email,
+      // No email: the messenger identity IS the account credential, and it is
+      // marked verified below so the same account can sign in on the website.
+      email: null,
       passwordHash: hashPassword(uid("botpw")),
       name: (opts.displayName || opts.username || `User ${handle}`).slice(0, 48),
       createdAt: now(),
@@ -74,6 +76,12 @@ export async function createBotUser(
       referralCode,
       referredBy: null,
       isAdmin: false,
+      // The messenger identity was proven by the platform itself (signed
+      // initData / webhook sender), so the account counts as verified for the
+      // website and the mini app as well.
+      verifiedIdentities: [{ provider: platform, subject: String(externalId), verifiedAt }],
+      identityVerifiedAt: verifiedAt,
+      identityVerifiedBy: platform,
     };
     d.users.push(user);
   });
@@ -93,6 +101,36 @@ export async function createBotUser(
   }
 
   return { user: created, created: true };
+}
+
+/**
+ * Record that the account's messenger identity was proven by the platform
+ * itself (the update arrived from Telegram/VK/MAX with that user id). This is
+ * what lets a bot-created or bot-linked account generate on the website: the
+ * same verification rule applies everywhere, there is no second-class login.
+ */
+export async function markIdentityVerified(
+  platform: BotPlatform,
+  userId: string,
+  externalId: string,
+  username?: string | null
+): Promise<void> {
+  await mutate((d) => {
+    const u = d.users.find((x) => x.id === userId);
+    if (!u) return;
+    const fields = USER_FIELD[platform];
+    const numeric = externalIdToNumber(externalId);
+    const bag = u as unknown as Record<string, unknown>;
+    if (numeric !== null) bag[fields.id] = numeric;
+    if (username) bag[fields.username] = username;
+    if (!u.verifiedIdentities) u.verifiedIdentities = [];
+    const subject = String(externalId);
+    if (!u.verifiedIdentities.some((v) => v.provider === platform && v.subject === subject)) {
+      u.verifiedIdentities.push({ provider: platform, subject, verifiedAt: now() });
+    }
+    if (!u.identityVerifiedAt) u.identityVerifiedAt = now();
+    if (!u.identityVerifiedBy) u.identityVerifiedBy = platform;
+  });
 }
 
 async function uniqueReferralCode(base: string): Promise<string> {
@@ -135,7 +173,7 @@ export async function applyReferralFromBot(newUser: User, referralCode: string) 
     const u = dd.users.find((x) => x.id === newUser.id);
     if (u) u.referredBy = referrer.referralCode;
   });
-  await grantReferralBonus(referrer.id, newUser.email, newUser.id);
+  await grantReferralBonus(referrer.id, newUser.email || `bot:${newUser.id}`, newUser.id);
   return true;
 }
 

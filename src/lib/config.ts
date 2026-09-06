@@ -1,5 +1,6 @@
 import { db, mutate } from "./db";
-import { Package, Style } from "./types";
+import { Package, Style, type User } from "./types";
+import { getGenerationSettings } from "./generation/settings";
 
 /** Default subscriptions shown while payments are not yet attached. */
 export const DEFAULT_PACKAGES: Package[] = [
@@ -151,6 +152,7 @@ export const DEFAULT_STYLES: Style[] = [
 
 const DEFAULT_SETTINGS: Record<string, string> = {
   free_credits: "0",
+  daily_free_image_limit: "10",
   free_trial_styles: "all", // trial renders all active styles
   max_original_mb: "20",
   reward_telegram: "1",
@@ -216,29 +218,13 @@ const DEFAULT_SETTINGS: Record<string, string> = {
  * missing settings keys (so future defaults are added to existing databases).
  */
 export async function ensureSeeded() {
-  const d = await db();
-  if (d.styles.length === 0) {
-    await mutate((draft) => {
-      draft.styles = structuredClone(DEFAULT_STYLES);
-    });
-  }
-  if (d.packages.length === 0) {
-    await mutate((draft) => {
-      draft.packages = structuredClone(DEFAULT_PACKAGES);
-    });
-  }
-  // Fill in any settings that are not yet present, leaving existing values alone.
-  const present = new Set(d.settings.map((s) => s.key));
-  const missing = Object.entries(DEFAULT_SETTINGS).filter(([k]) => !present.has(k));
-  if (missing.length > 0) {
-    await mutate((draft) => {
-      for (const [k, v] of missing) {
-        if (!draft.settings.some((s) => s.key === k)) {
-          draft.settings.push({ key: k, value: v });
-        }
-      }
-    });
-  }
+  await mutate((draft) => {
+    if (draft.styles.length === 0) draft.styles = structuredClone(DEFAULT_STYLES);
+    if (draft.packages.length === 0) draft.packages = structuredClone(DEFAULT_PACKAGES);
+    for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
+      if (!draft.settings.some((s) => s.key === key)) draft.settings.push({ key, value });
+    }
+  });
 }
 
 export async function getSetting(key: string): Promise<string | null> {
@@ -281,8 +267,9 @@ export async function getSettingOrEnv(key: string, envName?: string): Promise<st
 }
 
 /** Whether unlimited (test) generation mode is enabled for the current user. */
-export async function isUnlimitedMode(): Promise<boolean> {
-  return (await getSetting("test_unlimited")) === "1";
+export async function isUnlimitedMode(user?: Pick<User, "isAdmin">): Promise<boolean> {
+  if ((await getSetting("test_unlimited")) !== "1") return false;
+  return user ? user.isAdmin === true : true;
 }
 
 export async function activeStyles(): Promise<Style[]> {
@@ -294,7 +281,7 @@ export async function activePackages(): Promise<Package[]> {
 }
 
 export async function generationMode(): Promise<string> {
-  return (await getSetting("generation_mode")) || process.env.GENERATION_MODE || "demo";
+  return (await getGenerationSettings()).mode;
 }
 
 /** The single, canonical shorthand used across the app. */

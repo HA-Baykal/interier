@@ -1,14 +1,13 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useLocale } from "./locale-context";
 import { authHeaders } from "@/lib/client-auth";
 import { ClientUser } from "./types";
+import TelegramAccess from "./TelegramAccess";
 
 export default function Account({ initialUser }: { initialUser: ClientUser }) {
   const { t, locale } = useLocale();
-  const router = useRouter();
   const [user, setUser] = useState(initialUser);
   const [copied, setCopied] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -70,24 +69,6 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
     }
   }
 
-  async function verify(channel: "telegram" | "vk") {
-    const res = await fetch("/api/rewards/verify", {
-      method: "POST",
-      headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ channel, username: "demo_user" }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (data.ok) {
-      setToast(`+${data.credits} ✦`);
-      fetch("/api/auth/me", { headers: authHeaders() })
-        .then((r) => r.json())
-        .then((d) => d.user && setUser(d.user));
-      router.refresh();
-    } else if (data.already) {
-      setToast(t("rewards_connected"));
-    }
-  }
-
   async function togglePublish(id: string) {
     const next = !pubIds[id];
     try {
@@ -108,7 +89,7 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
   return (
     <div className="container" style={{ paddingTop: 40, paddingBottom: 70 }}>
       <h1 style={{ fontSize: 30, fontWeight: 800 }}>{t("account_title")}</h1>
-      <p className="muted" style={{ marginTop: 6 }}>{user.name} · {user.email}</p>
+      <p className="muted" style={{ marginTop: 6 }}>{user.name}{user.email ? ` · ${user.email}` : ""}</p>
 
       <div className="row" style={{ alignItems: "center", gap: 14, flexWrap: "wrap", marginTop: 20 }}>
         <div className="panel" style={{ minWidth: 220 }}>
@@ -117,11 +98,20 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
         </div>
       </div>
 
+      <div className="panel mt">
+        <h2 style={{ fontSize: 19 }}>{t("tg_account_title")}</h2>
+        {user.telegramLinked ? <p className="ok mt">{t("tg_linked")}</p> : <>
+          <p className="small muted mt">{t(user.isAdmin || user.verified ? "tg_link_help" : "tg_unverified_help")}</p>
+          <TelegramAccess purpose={user.isAdmin || user.verified ? "link" : "login"} onLinked={() => {
+            fetch("/api/auth/me", { headers: authHeaders(), cache: "no-store" }).then(r => r.json()).then(data => { if (data.user) setUser(data.user); });
+          }} />
+        </>}
+      </div>
       {/* Referral */}
       <div className="ref-box mt">
         <h2 style={{ fontSize: 19 }}>{t("account_referral_title")}</h2>
         <p className="muted small" style={{ marginTop: 6 }}>
-          {t("account_referral_desc")} {t("account_invited", { n: user.referralCount })}
+          {t("referrals_pending")} {t("account_invited", { n: user.referralCount })}
         </p>
         <div className="ref-link">
           <input className="input" readOnly value={refLink} onFocus={(e) => e.target.select()} />
@@ -132,6 +122,7 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
       </div>
 
       {/* Rewards */}
+      <p className="small muted mt">{t("rewards_not_configured")}</p>
       <div className="panel mt">
         <h2 style={{ fontSize: 19 }}>{t("rewards_title")}</h2>
         <p className="muted small" style={{ marginTop: 6 }}>{t("rewards_demo_note")}</p>
@@ -143,7 +134,7 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
               <span className="chip" style={{ color: "var(--success)" }}>✓ {t("rewards_connected")}</span>
             ) : (
               <div className="row" style={{ flexWrap: "wrap" }}>
-                <button className="btn btn-ghost btn-sm" onClick={() => verify("telegram")}>
+                <button className="btn btn-ghost btn-sm" disabled title={t("rewards_not_configured")}>
                   {t("rewards_connect")}
                 </button>
               </div>
@@ -156,7 +147,7 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
               <span className="chip" style={{ color: "var(--success)" }}>✓ {t("rewards_connected")}</span>
             ) : (
               <div className="row" style={{ flexWrap: "wrap" }}>
-                <button className="btn btn-ghost btn-sm" onClick={() => verify("vk")}>
+                <button className="btn btn-ghost btn-sm" disabled title={t("rewards_not_configured")}>
                   {t("rewards_connect")}
                 </button>
               </div>

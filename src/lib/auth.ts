@@ -4,9 +4,9 @@ import bcrypt from "bcryptjs";
 import { db, mutate, uid, now } from "./db";
 import { User } from "./types";
 
-const SESSION_COOKIE = "interier_session";
+export const SESSION_COOKIE = "interier_session";
 const SESSION_TOKEN_PARAM = "ses"; // query-string fallback for cookie-blocked browsers
-const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
+export const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 
 function secret(): string {
   return process.env.SESSION_SECRET || "dev-secret-change-me";
@@ -80,6 +80,8 @@ export function verifyPassword(password: string, hash: string): boolean {
 export async function makeSession(userId: string): Promise<string> {
   const token = uid("sess");
   await mutate((d) => {
+    if (!d.users.some((u) => u.id === userId)) throw new AuthError("NOT_AUTHENTICATED");
+    d.sessions = d.sessions.filter((s) => s.expiresAt > now());
     d.sessions.push({
       token,
       userId,

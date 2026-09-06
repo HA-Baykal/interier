@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useLocale } from "./locale-context";
 import { saveToken, withToken } from "@/lib/client-auth";
+import TelegramAccess from "./TelegramAccess";
 
 export default function AuthForm({
   mode,
@@ -29,23 +30,23 @@ export default function AuthForm({
       mode === "login"
         ? { email, password }
         : { name, email, password, referralCode: refCode || null };
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setError(t(data.error || "auth_error_fields"));
-      setLoading(false);
-      return;
-    }
-    // The session token is kept in sessionStorage AND passed as ?ses= so the
-    // session works even if the browser refuses to persist/echo the cookie
-    // (third-party / cross-site preview contexts). A full navigation sends it
-    // as a brand-new document request.
-    if (data.token) saveToken(data.token);
-    window.location.href = withToken("/studio");
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.message || t(data.error || "auth_error_fields"));
+        return;
+      }
+      if (!data.token) throw new Error(t("common_error"));
+      // SessionStorage/query fallback also supports cookie-blocked preview iframes.
+      saveToken(data.token);
+      window.location.href = withToken("/studio");
+    } catch (e) { setError(e instanceof Error ? e.message : t("common_error")); }
+    finally { setLoading(false); }
   }
 
   return (
@@ -53,6 +54,8 @@ export default function AuthForm({
       <div className="panel">
         <h2>{t(mode === "login" ? "auth_login_title" : "auth_register_title")}</h2>
         <div className="sub">{t("tagline")}</div>
+        <TelegramAccess referralCode={refCode || undefined} />
+        <p className="small muted">{t("tg_email_pending")}</p>
         <form onSubmit={submit}>
           {mode === "register" && (
             <div className="field">
@@ -98,7 +101,7 @@ export default function AuthForm({
               />
             </div>
           )}
-          {error && <div className="err">{error}</div>}
+          {error && <div className="err" role="alert">{error}</div>}
           <button className="btn btn-primary" style={{ width: "100%", marginTop: 8 }} disabled={loading}>
             {loading ? t("common_loading") : t(mode === "login" ? "auth_login_btn" : "auth_register_btn")}
           </button>

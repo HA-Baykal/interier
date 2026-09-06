@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser, AuthError } from "@/lib/auth";
-import { authorizeGeneration } from "@/lib/billing";
 import { runInstructionEdit } from "@/lib/generation/pipeline";
 import { parseInstruction } from "@/lib/generation/instruction";
+import { RequestError, safeErrorMessage } from "@/lib/errors";
+import { privateHeaders } from "@/lib/auth-response";
 import { categoryById } from "@/lib/marketplaces";
 
 export const runtime = "nodejs";
@@ -29,6 +30,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (e instanceof AuthError) return NextResponse.json({ error: e.code }, { status: 401 });
     throw e;
   }
+  // Guards from the shared pipeline (balance, verification, provider config)
+  // arrive as errors with a code and a status: report them, never a 500.
+  const failure = (e: unknown) => NextResponse.json(
+    { error: e instanceof RequestError ? e.code : "edit_failed", message: safeErrorMessage(e) },
+    { status: e instanceof RequestError ? e.status : 500, headers: { ...privateHeaders } }
+  );
 
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
@@ -40,17 +47,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: "nothing_detected", instruction }, { status: 422 });
   }
 
-  const charge = await authorizeGeneration(user, "single");
-  if (!charge.ok) return NextResponse.json({ error: charge.error }, { status: charge.error === "no_trial" ? 403 : 402 });
-
-  const res = await runInstructionEdit({
-    user,
-    generationId: params.id,
-    instruction,
-    styleOverrideId: parsed.data.styleId || null,
-    consumed: charge.consumed,
-    origin: "web",
-  });
+  let res: Awaited<ReturnType<typeof runInstructionEdit>>;
+  try {
+    res = await runInstructionEdit({
+      user,
+      generationId: params.id,
+      instruction,
+      styleOverrideId: parsed.data.styleId || null,
+      origin: "web",
+    });
+  } catch (e) {
+    return failure(e);
+  }
   if ("error" in res) return NextResponse.json({ error: res.error }, { status: res.error === "forbidden" ? 403 : 400 });
 
   return NextResponse.json({

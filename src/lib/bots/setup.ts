@@ -11,8 +11,13 @@ import { getSettingOrEnv, setSetting } from "../config";
 import { BotPlatform } from "../types";
 import { appUrl, maxConfig, platformsStatus, publicBaseUrl, telegramConfig, vkConfig } from "./config";
 
+/**
+ * One URL per platform. Telegram shares the login route on purpose: a single
+ * webhook carries both the `auth_` confirmations and the bot-application
+ * updates, so BotFather never needs to be repointed when features grow.
+ */
 export function webhookPath(platform: BotPlatform): string {
-  return `/api/bots/${platform}/webhook`;
+  return platform === "telegram" ? "/api/auth/telegram/webhook" : `/api/bots/${platform}/webhook`;
 }
 
 /**
@@ -33,13 +38,21 @@ export type SetupResult = { ok: boolean; url?: string; error?: string; detail?: 
 export async function setupTelegram(hostHint?: string | null): Promise<SetupResult> {
   const cfg = await telegramConfig();
   if (!cfg.token) return { ok: false, error: "TELEGRAM_BOT_TOKEN не задан (админка → Боты или env)" };
-  const base = await publicBaseUrl(hostHint);
-  const url = `${base}${webhookPath("telegram")}`;
-
   await ensureWebhookSecret("telegram_webhook_secret");
-  const { tgSetWebhook, tgMe } = await import("./telegram");
-  const res = await tgSetWebhook(url);
-  if (!res.ok) return { ok: false, error: res.error, url };
+
+  // The webhook itself belongs to the login transport: both share the single
+  // URL /api/auth/telegram/webhook, which forwards every non-login update to
+  // this engine. Reaching Telegram is the admin's explicit action, therefore
+  // an existing webhook may be replaced (previous deployments are stale).
+  const { connectTelegram } = await import("@/lib/telegram/connection");
+  let url: string | undefined;
+  try {
+    const conn = await connectTelegram(true);
+    url = conn.publicOrigin ? `${conn.publicOrigin}${webhookPath("telegram")}` : undefined;
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Telegram connect failed", url };
+  }
+  const { tgMe } = await import("./telegram");
 
   // The bot's menu button opens our mini app — this is what makes it "an app".
   const app = await appUrl(hostHint);

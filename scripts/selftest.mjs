@@ -49,8 +49,8 @@ function bad(name, detail) {
 }
 const check = (cond, name, detail) => (cond ? ok(name, detail) : bad(name, detail ?? "assertion failed"));
 
-async function api(p, { method = "GET", token, body, form, raw } = {}) {
-  const headers = {};
+async function api(p, { method = "GET", token, body, form, raw, headers: extra = {} } = {}) {
+  const headers = { ...extra };
   if (token) headers["x-session-token"] = token;
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const res = await fetch(BASE + p, {
@@ -90,6 +90,30 @@ async function main() {
   );
 
   /* ------------------------------------------------------- 2. register + design */
+  /* ------------------------------------------------------------- 1b. prep */
+  section("1b. Подготовка тестового окружения");
+  // The harness needs the simulator, shopping auto-detection and an account the
+  // owner rules (admin_telegram_id) — the same promotion a real owner gets.
+  const ownerId = "77" + (Date.now() % 10000000);
+  const prepLogin = await api("/api/auth/login", { method: "POST", body: { email: "admin@interier.ru", password: "admin123" } });
+  const prepToken = prepLogin.json?.token || null;
+  check(!!prepToken, "администратор доступен (нужен для симулятора)", `status ${prepLogin.status}`);
+  if (prepToken) {
+    await api("/api/admin/bots", { method: "PUT", token: prepToken, body: { admin_telegram_id: ownerId, public_base_url: BASE } });
+    await api("/api/admin/settings", {
+      method: "PUT",
+      token: prepToken,
+      body: { bots_simulator: "1", bots_enabled: "1", test_unlimited: "1", shopping_enabled: "1", shopping_auto: "1" },
+    });
+  }
+  const prepView = await api("/api/admin/settings", { token: prepToken });
+  const prepSettings = prepView.json?.settings || {};
+  check(
+    prepSettings.bots_simulator === "1" && prepSettings.shopping_enabled === "1" && prepSettings.test_unlimited === "1",
+    "переключатели теста и шопинга включены",
+    `sim=${prepSettings.bots_simulator}, shop=${prepSettings.shopping_enabled}, unlim=${prepSettings.test_unlimited}`
+  );
+
   section("2. Аккаунт и генерация дизайна");
   const email = `selftest_${Date.now()}@example.com`;
   const reg = await api("/api/auth/register", {
@@ -98,6 +122,19 @@ async function main() {
   });
   check(reg.status === 200 && !!reg.json?.token, "регистрация тестового аккаунта", `status ${reg.status}`);
   const token = reg.json?.token;
+
+  // Site accounts are allowed to generate only with an identity confirmed by a
+  // messenger (that is what the bot login is for). The selftest proves the
+  // whole funnel: site asks for a code -> bot redeems it -> account verified.
+  const issued0 = await api("/api/account/botlink", { method: "POST", token, body: { platform: "telegram" } });
+  const bindCode = issued0.json?.code;
+  const simBind = await api("/api/bots/simulator", {
+    method: "POST",
+    body: { platform: "telegram", chatId: "selftest-bind-" + Date.now(), externalId: ownerId, text: "/start " + bindCode },
+  });
+  const meVerified = await api("/api/auth/me", { token });
+  check(!!bindCode && simBind.status === 200 && meVerified.json?.user?.verified === true, "аккаунт подтверждён через бота", `verified=${meVerified.json?.user?.verified}`);
+  check(meVerified.json?.user?.telegramLinked === true, "Telegram-профиль привязан к аккаунту сайта", `tg=${meVerified.json?.user?.telegramId}`);
 
   const sample = path.join(here, "..", "public", "styles", "minimalism.jpg");
   const bytes = await readFile(sample).catch(() => null);
@@ -286,6 +323,52 @@ async function main() {
   const replay = await sim({ platform: "telegram", chatId: chatId + "-2", externalId: "8" + Date.now(), text: `/start ${issued.json?.code}` });
   const replayText = (replay.json?.messages || []).map((m) => m.text || "").join(" ");
   check(/уже|already|устарел|expired/i.test(replayText), "код одноразовый", replayText.replace(/<[^>]+>/g, "").slice(0, 60));
+
+  /* ------------------------------------------- 12. Telegram: один вебхук на всё */
+  section("12. Telegram: один вебхук = вход + приложение");
+  const tgSecret = "selftest_" + Date.now().toString(36);
+  await api("/api/admin/bots", { method: "PUT", token: adminToken, body: { telegram_webhook_secret: tgSecret } });
+  const info = await api("/api/bots/info");
+  const tgEntry = (info.json?.platforms || []).find((p) => p.platform === "telegram");
+  const tgPath = tgEntry?.webhookPath || info.json?.webhookPaths?.telegram || "";
+  check(tgPath === "/api/auth/telegram/webhook", "путь вебхука Telegram совпадает со входом", tgPath || "—");
+  const tgHealth = await api("/api/auth/telegram/webhook");
+  check(tgHealth.status === 200 && /telegram/i.test(String(tgHealth.json?.service || "")), "GET /api/auth/telegram/webhook жив", JSON.stringify(tgHealth.json || {}).slice(0, 60));
+
+  const tgChatId = 900000 + (Date.now() % 99000);
+  const update = (id, text) => ({
+    update_id: id,
+    message: {
+      message_id: id,
+      from: { id: tgChatId, is_bot: false, first_name: "Вебхук", username: "webhook_probe", language_code: "ru" },
+      chat: { id: tgChatId, type: "private", first_name: "Вебхук" },
+      date: Math.floor(Date.now() / 1000),
+      text,
+    },
+  });
+  const tgNoSecret = await api("/api/auth/telegram/webhook", { method: "POST", body: update(700001, "/start") });
+  check(tgNoSecret.status === 401 || tgNoSecret.status === 403, "без секрета вебхук не принимает сообщения", `status ${tgNoSecret.status}`);
+  const tgWithSecret = await api("/api/auth/telegram/webhook", {
+    method: "POST",
+    headers: { "x-telegram-bot-api-secret-token": tgSecret },
+    raw: JSON.stringify(update(700002, "/start")),
+  });
+  check(tgWithSecret.status === 200, "с секретом обновление обработано", `status ${tgWithSecret.status}`);
+  const botsAfter = await api("/api/admin/bots", { token: adminToken });
+  const seen = (botsAfter.json?.chats || []).some((c) => c.platform === "telegram" && String(c.chatId) === String(tgChatId));
+  check(seen, "движок приложения получил сообщение через вебхук входа", seen ? "чат зарегистрирован" : "чата нет в списке");
+  const tgAuthPrefix = await api("/api/auth/telegram/webhook", {
+    method: "POST",
+    headers: { "x-telegram-bot-api-secret-token": tgSecret, "content-type": "application/json" },
+    raw: JSON.stringify(update(700003, "/start auth_" + "0".repeat(32))),
+  });
+  check(tgAuthPrefix.status === 200, "сообщение входа не ломает приложение", `status ${tgAuthPrefix.status}`);
+  const tgDup = await api("/api/auth/telegram/webhook", {
+    method: "POST",
+    headers: { "x-telegram-bot-api-secret-token": tgSecret, "content-type": "application/json" },
+    raw: JSON.stringify(update(700002, "/start")),
+  });
+  check(tgDup.status === 200, "повтор того же update_id безопасен", `status ${tgDup.status}`);
 
   finish();
 }

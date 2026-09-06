@@ -9,3 +9,11 @@ src/*.db
 data
 .DS_Store
 *.tsbuildinfo
+
+.vercel
+.env.*
+!.env.example
+!.env.local.sample
+
+playwright-report/
+test-results/

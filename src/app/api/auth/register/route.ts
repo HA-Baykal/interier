@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { assertDurableDatabase } from "@/lib/storage-config";
+import { RequestError, safeErrorMessage } from "@/lib/errors";
 import { z } from "zod";
 import { db, mutate, uid, now } from "@/lib/db";
 import { hashPassword, makeSession, setSessionCookie, makeReferralCode, isSecureRequest } from "@/lib/auth";
-import { grantReferralBonus, addCredits } from "@/lib/billing";
+import { assertSameOrigin } from "@/lib/request-origin";
+import { enforceRateLimit, requestClientBucket } from "@/lib/security-store";
 import { getSettingNumber } from "@/lib/config";
 
 const schema = z.object({
@@ -12,12 +15,20 @@ const schema = z.object({
   referralCode: z.string().max(40).optional().nullable(),
 });
 
+export const maxDuration = 30;
+
 export async function POST(req: NextRequest) {
+  try { assertSameOrigin(req); assertDurableDatabase(); await enforceRateLimit("email-register-ip", requestClientBucket(req), 5, 60 * 60_000); return await register(req); }
+  catch (e) { return NextResponse.json({ error: e instanceof RequestError ? e.code : "auth_unavailable", message: safeErrorMessage(e) }, { status: e instanceof RequestError ? e.status : 503 }); }
+}
+
+async function register(req: NextRequest) {
   const { logAuthDiag } = await import("@/lib/debug");
+  await enforceRateLimit("email-register-global", "all", 100, 24 * 60 * 60_000);
   await logAuthDiag(req, "register");
   // Cold API instances never render the layout: make sure defaults are seeded.
-  const { ensureBootSafe } = await import("@/lib/boot");
-  await ensureBootSafe();
+  const { ensureBoot } = await import("@/lib/boot");
+  await ensureBoot();
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
@@ -34,7 +45,6 @@ export async function POST(req: NextRequest) {
 
   // Resolve referral
   let referredBy: string | null = null;
-  let referralOutcome = { ok: false };
   const rc = referralCode?.trim();
   if (rc) {
     const referrer = d.users.find((u) => u.referralCode.toLowerCase() === rc.toLowerCase());
@@ -47,11 +57,13 @@ export async function POST(req: NextRequest) {
   const freeCredits = await getSettingNumber("free_credits", 0);
   const newReferralCode = await makeReferralCode(emailNorm);
 
-  await mutate((draft) => {
+  const passwordHash = hashPassword(password);
+  const created = await mutate((draft) => {
+    if (draft.users.some((u) => u.email === emailNorm)) return false;
     draft.users.push({
       id: userId,
       email: emailNorm,
-      passwordHash: hashPassword(password),
+      passwordHash,
       name,
       createdAt: now(),
       credits: freeCredits,
@@ -60,16 +72,20 @@ export async function POST(req: NextRequest) {
       telegramUsername: null,
       vkId: null,
       vkUsername: null,
-      referralCode: newReferralCode,
+      referralCode: draft.users.some((u) => u.referralCode === newReferralCode) ? `${newReferralCode}-${uid().slice(0, 8)}` : newReferralCode,
       referredBy,
       isAdmin: false,
+      identityVerifiedAt: null, identityVerifiedBy: null,
     });
+    if (referredBy && draft.users.some(user => user.id === referredBy)) {
+      draft.referrals.push({ id: uid("ref"), referrerId: referredBy, referredEmail: emailNorm, referredUserId: userId, rewarded: false, createdAt: now() });
+    }
+    return true;
   });
+  if (!created) return NextResponse.json({ error: "auth_error_exists" }, { status: 409 });
 
-  // Grant referral bonus to the referrer if applicable
-  if (referredBy) {
-    referralOutcome = await grantReferralBonus(referredBy, emailNorm, userId);
-  }
+  // Referral credit is deferred until a real confirmation flow verifies this account.
+  // Merely registering an arbitrary email must not mint spendable credits for a referrer.
 
   const token = await makeSession(userId);
   setSessionCookie(token, isSecureRequest(req));
@@ -78,6 +94,7 @@ export async function POST(req: NextRequest) {
     ok: true,
     token,
     credits: freeCredits,
-    referralApplied: referralOutcome.ok,
+    referralApplied: false,
+    verificationRequired: true,
   });
 }

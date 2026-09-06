@@ -11,9 +11,10 @@
 import { db, mutate } from "../db";
 import { t as tr } from "../i18n";
 import { activePackages, activeStyles, generationMode, getSetting, isUnlimitedMode, setSetting } from "../config";
-import { authorizeGeneration, grantTelegramBonus } from "../billing";
+import { grantTelegramBonus } from "../billing";
+import { RequestError, safeErrorMessage } from "../errors";
 import { resolveImageUrl } from "@/app/api/upload/service";
-import { GenPayload, loadImageBytes, regenerateShopping, runInstructionEdit, runStyleGeneration } from "../generation/pipeline";
+import { Charge, GenPayload, chargeForGeneration, loadImageBytes, regenerateShopping, runInstructionEdit, runStyleGeneration } from "../generation/pipeline";
 import { parseInstruction } from "../generation/instruction";
 import { categoryById } from "../marketplaces";
 import { shoppingSettings } from "../shopping";
@@ -30,8 +31,8 @@ import {
   ensureOwnerAdmin,
   getChat,
   linkChatToUser,
-  updateChat,
-} from "./store";
+  markIdentityVerified,
+  updateChat, } from "./store";
 
 type Ctx = {
   inbound: BotInbound;
@@ -554,7 +555,7 @@ async function findGeneration(ctx: Ctx, id: string | null | undefined): Promise<
 
 async function balanceMessage(ctx: Ctx): Promise<BotOutbound> {
   const { locale, user } = ctx;
-  const unlimited = await isUnlimitedMode();
+  const unlimited = user ? await isUnlimitedMode(user) : false;
   const packs = await activePackages();
   const base = await publicBaseUrl(ctx.host);
   return {
@@ -683,11 +684,14 @@ async function bindFlow(ctx: Ctx, code: string): Promise<BotReply> {
   const user = (await db()).users.find((u) => u.id === res.userId) || null;
   if (!user) return { messages: [{ text: tr(locale, "bot_bind_failed") }, await menu(ctx)] };
   await linkChatToUser(inbound.platform, ctx.chat.chatId, user.id, inbound.externalId);
+  // «Бот = вход»: after the chat is attached, the account is confirmed by the
+  // platform, so it can generate on the site as well.
+  await markIdentityVerified(inbound.platform, user.id, inbound.externalId, inbound.username);
   const admin = await ensureOwnerAdmin(inbound.platform, inbound.externalId, user.id);
   const next: Ctx = { ...ctx, user, isAdmin: !!user.isAdmin || admin, chat: { ...ctx.chat, userId: user.id } };
   return {
     messages: [
-      { text: tr(locale, "bot_bind_ok", { name: user.name || user.email, credits: user.credits }) },
+      { text: tr(locale, "bot_bind_ok", { name: user.name || user.email || "Гость", credits: user.credits }) },
       await menu(next),
     ],
     toast: tr(locale, "bot_bind_ok_short"),
@@ -725,8 +729,16 @@ async function generateFlow(ctx: Ctx, styles: Style[], scope: "single" | "all"):
   const img = await loadImageBytes(src);
   if (!img) return { messages: [{ text: tr(locale, "common_error") }] };
 
-  const charge = await authorizeGeneration(user, scope);
-  if (!charge.ok) return { messages: [{ text: tr(locale, "bot_no_credits") }] };
+  // A single style is charged inside the pipeline; a whole set spends the free
+  // trial once for all of them, exactly like the website does.
+  let charge: Charge | null = null;
+  if (scope === "all") {
+    try {
+      charge = await chargeForGeneration(user, "all");
+    } catch (e) {
+      return { messages: [{ text: generationErrorMessage(locale, e) }] };
+    }
+  }
 
   const instruction = chat.pendingInstruction || null;
   const platform = inbound.platform;
@@ -746,14 +758,15 @@ async function generateFlow(ctx: Ctx, styles: Style[], scope: "single" | "all"):
           source: img,
           originalId,
           originalUrl: src,
-          consumed: charge.consumed,
+          scope,
+          preCharged: charge ?? undefined,
           instruction,
           origin: platform,
         });
         lastGenId = payload.id;
         out.push(...(await payloadMessages(ctx, payload)));
       } catch (e) {
-        out.push({ text: tr(locale, "bot_error", { err: e instanceof Error ? e.message : "unknown" }) });
+        out.push({ text: generationErrorMessage(locale, e) });
       }
     }
     await updateChat(platform, chatId, {
@@ -778,6 +791,18 @@ async function generateFlow(ctx: Ctx, styles: Style[], scope: "single" | "all"):
   };
 }
 
+/** Turns a pipeline failure into something a chat user can act on. */
+function generationErrorMessage(locale: Locale, e: unknown): string {
+  if (e instanceof RequestError) {
+    if (e.code === "no_credits" || e.code === "no_trial" || e.code === "trial_used" || e.code === "free_budget_exhausted") {
+      return tr(locale, "bot_no_credits");
+    }
+    if (e.code === "ai_not_configured") return tr(locale, "bot_ai_not_ready");
+    if (e.status < 500 && e.message) return `${tr(locale, "bot_error", { err: e.message })}`;
+  }
+  return tr(locale, "bot_error", { err: safeErrorMessage(e) });
+}
+
 async function editFlow(ctx: Ctx, generationId: string, instruction: string, forceTargets?: string[]): Promise<BotReply> {
   const { inbound, chat, locale, user } = ctx;
   if (!user) return { messages: [{ text: tr(locale, "bot_no_design") }] };
@@ -789,20 +814,16 @@ async function editFlow(ctx: Ctx, generationId: string, instruction: string, for
     return { messages: [{ text: `${tr(locale, "edit_none")}\n${tr(locale, "bot_edit_ask")}` }] };
   }
 
-  const charge = await authorizeGeneration(user, "single");
-  if (!charge.ok) return { messages: [{ text: tr(locale, "bot_no_credits") }] };
-
   const platform = inbound.platform;
   const chatId = chat.chatId;
 
   const task = async (): Promise<BotOutbound[]> => {
-    const res = await runInstructionEdit({
-      user,
-      generationId,
-      instruction,
-      consumed: charge.consumed,
-      origin: platform,
-    });
+    let res: Awaited<ReturnType<typeof runInstructionEdit>>;
+    try {
+      res = await runInstructionEdit({ user, generationId, instruction, origin: platform });
+    } catch (e) {
+      return [{ text: generationErrorMessage(locale, e) }];
+    }
     await updateChat(platform, chatId, { step: "idle" });
     if ("error" in res) {
       const map: Record<string, string> = {
@@ -1005,7 +1026,7 @@ async function adminUsers(ctx: Ctx): Promise<BotOutbound> {
   const top = [...d.users].sort((a, b) => b.credits - a.credits).slice(0, 8);
   const lines = top.map(
     (u, i) =>
-      `${i + 1}. ${(u.name || u.email).slice(0, 24)} — ${u.credits}✦${u.isAdmin ? " 👑" : ""}${u.telegramId ? " ✈️" : ""}${u.vkId ? " 💬" : ""}${u.maxId ? " 🔵" : ""}`
+      `${i + 1}. ${(u.name || u.email || "Гость").slice(0, 24)} — ${u.credits}✦${u.isAdmin ? " 👑" : ""}${u.telegramId ? " ✈️" : ""}${u.vkId ? " 💬" : ""}${u.maxId ? " 🔵" : ""}`
   );
   return {
     text: `${tr(ctx.locale, "bot_admin_users")}\n${lines.join("\n") || "—"}`,

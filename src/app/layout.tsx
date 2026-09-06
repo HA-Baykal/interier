@@ -1,3 +1,4 @@
+import { isIdentityVerified } from "@/lib/identity";
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import AppShell from "@/components/AppShell";
@@ -6,7 +7,11 @@ import { getLocale } from "@/lib/locale";
 import { referralCount, grantedRewards } from "@/lib/billing";
 import { ensureBootSafe } from "@/lib/boot";
 
+// Never seed or cache user data during a Vercel build.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
+  referrer: "no-referrer",
   title: "Interier — Ремонт без дизайнера",
   description:
     "Загрузите фото комнаты и получите реалистичный дизайн-проект в любом стиле. Первая генерация бесплатно.",
@@ -48,6 +53,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   telegramGranted: (await grantedRewards(user.id)).telegram,
                   vkGranted: (await grantedRewards(user.id)).vk,
                   isAdmin: user.isAdmin,
+        verified: isIdentityVerified(user),
+        telegramLinked: !!user.verifiedIdentities?.some(identity => identity.provider === "telegram"),
                   referralCount: await referralCount(user.id),
                 }
               : null

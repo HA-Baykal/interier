@@ -1,9 +1,12 @@
+import { isIdentityVerified } from "@/lib/identity";
 import { redirect } from "next/navigation";
 import Studio from "@/components/Studio";
 import { resolvePageUser } from "@/lib/auth";
-import { activeStyles } from "@/lib/config";
+import { activeStyles, isUnlimitedMode } from "@/lib/config";
 import { referralCount, grantedRewards } from "@/lib/billing";
 import { ClientStyle } from "@/components/types";
+import { getGenerationSettings } from "@/lib/generation/settings";
+import { activeProfileForConfig, testProfileName } from "@/lib/generation/model-catalog";
 
 export default async function StudioPage({
   searchParams,
@@ -29,6 +32,8 @@ export default async function StudioPage({
     active: s.active,
   }));
   const rewards = await grantedRewards(user.id);
+  const generation = await getGenerationSettings();
+  const profile = activeProfileForConfig(generation.compatible);
 
   return (
     <Studio
@@ -45,9 +50,16 @@ export default async function StudioPage({
         telegramGranted: rewards.telegram,
         vkGranted: rewards.vk,
         isAdmin: user.isAdmin,
+        verified: isIdentityVerified(user),
+        telegramLinked: !!user.verifiedIdentities?.some(identity => identity.provider === "telegram"),
         referralCount: await referralCount(user.id),
       }}
       styles={styles}
+      aiConfigured={generation.aiConfigured}
+      isDemo={generation.mode === "demo"}
+      initialUnlimited={await isUnlimitedMode(user)}
+      activeProfileLabel={profile ? testProfileName(profile.id) : generation.compatible.model}
+      activeProfileEstimate={profile?.estimatedRub}
     />
   );
 }

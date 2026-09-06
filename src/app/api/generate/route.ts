@@ -1,125 +1,178 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { db, mutate, uid, now } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
-import { authorizeGeneration } from "@/lib/billing";
-import { activeStyles, getSettingNumber } from "@/lib/config";
-import { saveUpload } from "@/app/api/upload/service";
-import { runStyleGeneration } from "@/lib/generation/pipeline";
-import { Style } from "@/lib/types";
+import { activeStyles, isUnlimitedMode } from "@/lib/config";
+import { saveUpload, imageMime, maxOriginalBytes } from "@/app/api/upload/service";
+import { planGeneration, executeRealGeneration } from "@/lib/generation/provider";
+import { getGenerationSettings, validateCompatibleConfig } from "@/lib/generation/settings";
+import { RequestError, safeErrorMessage } from "@/lib/errors";
+import { assertDurableDatabase, assertDurableUploads } from "@/lib/storage-config";
+import type { Generation } from "@/lib/types";
+import { assertIdentityVerified } from "@/lib/identity";
+import { assertSameOrigin } from "@/lib/request-origin";
+import { enforceRateLimit } from "@/lib/security-store";
+import { assertFreeImageBudget } from "@/lib/generation/free-quota";
+import { IMAGE_QUALITIES, DEFAULT_IMAGE_QUALITY, supportsImageQuality } from "@/lib/generation/quality";
+import { getTestProfile } from "@/lib/generation/model-catalog";
+import { generationRequestSettings } from "@/lib/generation/request-settings";
+import { assertGenApiImageType } from "@/lib/generation/genapi-payload";
+import { parseInstruction, buildInstructionPrompt } from "@/lib/generation/instruction";
+import { attachShoppingToGeneration } from "@/lib/generation/pipeline";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// A real image-edit call can take minutes; never kill it mid-flight.
 export const maxDuration = 300;
 
 const schema = z.object({
   styleId: z.string().optional(),
   scope: z.enum(["single", "all"]).default("single"),
-  /** Optional free-text wish: applied on top of the style. */
+  quality: z.enum(IMAGE_QUALITIES).optional(),
+  testProfile: z.string().min(1).max(80).optional(),
+  // Free-text wish, e.g. «устраивает цвет и стиль штор, замени только шторы».
+  // For a first generation it refines the restyle prompt; the follow-up edit
+  // endpoint (`/api/generations/[id]/edit`) is what changes only one detail.
   instruction: z.string().max(600).optional(),
 });
 
-/**
- * Starts one or more designs from an uploaded photo.
- *
- * Same pipeline the messenger bots use, so a design created in Telegram and one
- * created here are indistinguishable: same record, same credits, same shopping
- * list with marketplace links.
- */
 export async function POST(req: NextRequest) {
-  let user;
+  let apiKey = "";
   try {
-    user = await requireUser(req);
+    assertSameOrigin(req);
+    assertDurableDatabase();
+    assertDurableUploads();
+    const user = await requireUser(req);
+    if (!user.isAdmin) await enforceRateLimit("generate-user", user.id, 3, 60_000);
+    assertIdentityVerified(user);
+    const form = await req.formData().catch(() => null);
+    const file = form?.get("file");
+    if (!(file instanceof File)) throw new RequestError("file_required", "Выберите фото комнаты.");
+    const parsed = schema.safeParse({
+      styleId: form?.get("styleId") || undefined, scope: form?.get("scope") || "single",
+      // Missing preserves legacy high; blank/invalid must NOT silently become high.
+      quality: form?.get("quality") ?? undefined,
+      testProfile: form?.get("testProfile") ?? undefined,
+      instruction: form?.get("instruction") ?? undefined,
+    });
+    if (!parsed.success) throw new RequestError("bad_request", "Некорректный стиль, качество или режим генерации.");
+    if (!file.size || file.size > maxOriginalBytes()) throw new RequestError("file_too_large", "Фото должно быть не больше 20 МБ.", 413);
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const mime = imageMime(buffer);
+    if (!mime) throw new RequestError("not_image", "Поддерживаются только фото JPEG, PNG и WebP.");
+
+    const { scope, styleId, quality, testProfile } = parsed.data;
+    const instruction = (parsed.data.instruction || "").trim() || null;
+    const wish = instruction ? parseInstruction(instruction) : null;
+    const styles = await activeStyles();
+    const targetStyles = scope === "all" ? styles : styles.filter((s) => s.id === styleId);
+    if (!targetStyles.length) throw new RequestError("style_not_found", "Выбранный стиль не найден.");
+    const settings = await getGenerationSettings();
+    apiKey = settings.compatible.apiKey;
+    const requestSettings = generationRequestSettings(settings, user.isAdmin, { scope, quality, testProfile });
+    const isDemo = requestSettings.mode === "demo";
+    if (!isDemo && !requestSettings.aiConfigured) throw new RequestError("ai_not_configured", "Ключ ИИ не настроен. Администратору нужно сохранить API-ключ в настройках.", 503);
+    const cfg = requestSettings.compatible;
+    const generationQuality = supportsImageQuality(requestSettings.mode, cfg.provider, cfg.model) ? cfg.quality ?? DEFAULT_IMAGE_QUALITY : undefined;
+    const resolution = requestSettings.mode === "compatible" && cfg.provider === "genapi" && cfg.model === "nano-banana-pro" ? cfg.resolution ?? "2K" : undefined;
+    const profile = testProfile ? getTestProfile(testProfile) : undefined;
+    if (requestSettings.mode === "compatible") {
+      validateCompatibleConfig(cfg);
+      if (cfg.provider === "genapi") assertGenApiImageType(cfg.model, mime);
+    }
+    const unlimited = await isUnlimitedMode(user);
+    // Reject exhausted accounts before writing another original to Blob.
+    if (!unlimited && user.trialUsed && (scope === "all" || user.credits <= 0)) {
+      throw new RequestError(scope === "all" ? "no_trial" : "no_credits", "Бесплатная попытка использована или недостаточно генераций.", scope === "all" ? 403 : 402);
+    }
+    if (!user.isAdmin) {
+      assertFreeImageBudget(await db(), user, targetStyles.length);
+    }
+    const plans = await Promise.all(targetStyles.map(async (st) => ({
+      st,
+      id: uid("gen"),
+      // The user's own words narrow the prompt; everything they did not mention
+      // is explicitly frozen by the instruction prompt builder.
+      plan: await planGeneration(st, requestSettings, wish ? {
+        promptOverride: `${buildInstructionPrompt({ styleNameEn: st.name.en, instruction: wish })} Keep the overall ${st.name.en} styling of the room.`,
+        instructionSummary: wish.summary,
+      } : undefined),
+    })));
+    const upload = await saveUpload(buffer, mime);
+
+    // Check the current balance/trial and create records together, not using a stale user snapshot.
+    const { generations, consumed } = await mutate((d) => {
+      const current = d.users.find((u) => u.id === user.id);
+      if (!current) throw new AuthError("NOT_AUTHENTICATED");
+      assertIdentityVerified(current);
+      if ((testProfile !== undefined || quality !== undefined) && current.isAdmin !== true) throw new RequestError("test_profile_forbidden", "Тестирование доступно только администратору.", 403);
+      assertFreeImageBudget(d, current, targetStyles.length);
+      let consumed: Generation["mode"] = "unlimited";
+      if (!unlimited || current.isAdmin !== true) {
+        if (!current.trialUsed) { current.trialUsed = true; consumed = "trial"; }
+        else if (scope === "all") throw new RequestError("no_trial", "Бесплатная генерация уже использована.", 403);
+        else if (current.credits > 0) { current.credits--; consumed = "credit"; }
+        else throw new RequestError("no_credits", "Недостаточно генераций на балансе.", 402);
+      }
+      const generations: Generation[] = plans.map(({ st, id, plan }) => ({
+        id, userId: user.id, styleId: st.id, originalId: upload.id, originalUrl: upload.url,
+        resultUrl: isDemo ? upload.url : null, status: isDemo ? "done" : "processing",
+        error: null, mode: consumed, freeBudgeted: current.isAdmin !== true && consumed === "trial", provider: plan.provider,
+        kind: "design", instruction, changedCategories: wish?.targetCategories ?? [], shopping: null, origin: "web", quality: generationQuality, resolution, testProfile, estimatedCostRub: profile?.estimatedRub, createdAt: now(), published: false,
+      }));
+      d.generations.push(...generations);
+      return { generations, consumed };
+    });
+
+    // All styles share one bounded window, rather than N sequential 180s polls.
+    const payload = await Promise.all(generations.map(async (g, index) => {
+      const { st, plan } = plans[index];
+      const startedAt = Date.now();
+      let resultUrl = isDemo ? upload.url : null;
+      let status: Generation["status"] = "done";
+      let provider = plan.provider;
+      let error: string | null = null;
+      let note = plan.note;
+      if (!isDemo) {
+        try {
+          const result = await executeRealGeneration(plan, buffer, mime, upload.url);
+          if (!result) throw new Error("AI provider returned no image");
+          resultUrl = result.resultUrl;
+          provider = result.provider;
+          note = "Готово.";
+        } catch (e) {
+          status = "failed";
+          error = safeErrorMessage(e, [apiKey]);
+          note = error;
+        }
+      }
+      // Which details are in the result and where to buy them — the same data
+      // the messenger bots send as a list of links.
+      const shopping = status === "done"
+        ? await attachShoppingToGeneration(g.id, { instruction, targets: wish?.targetCategories ?? null })
+        : null;
+      return {
+        id: g.id, styleId: st.id, styleSlug: st.slug, originalUrl: upload.url,
+        resultUrl, status, provider, quality: g.quality, resolution: g.resolution, testProfile: g.testProfile, estimatedCostRub: g.estimatedCostRub, durationMs: Math.max(0, Date.now() - startedAt), mode: consumed, demoConfig: plan.demoConfig,
+        note, error, consumed, published: false, shopping,
+      };
+    }));
+
+    await mutate((d) => {
+      for (const item of payload) {
+        const record = d.generations.find((g) => g.id === item.id);
+        if (record) Object.assign(record, { status: item.status, resultUrl: item.resultUrl, provider: item.provider, error: item.error, durationMs: item.durationMs });
+      }
+      // A failed request must not burn the user's free trial / internal credit.
+      if (payload.every((p) => p.status === "failed")) {
+        const current = d.users.find((u) => u.id === user.id);
+        if (current && consumed === "trial") current.trialUsed = false;
+        if (current && consumed === "credit") current.credits++;
+      }
+    });
+    return NextResponse.json({ ok: true, scope, consumed, isDemo, unlimited, generations: payload });
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.code }, { status: 401 });
-    throw e;
+    const message = safeErrorMessage(e, [apiKey]);
+    return NextResponse.json({ error: e instanceof RequestError ? e.code : "generation_failed", message }, { status: e instanceof RequestError ? e.status : 500 });
   }
-
-  const form = await req.formData().catch(() => null);
-  if (!form || !(form.get("file") instanceof File)) {
-    return NextResponse.json({ error: "file_required" }, { status: 400 });
-  }
-  const file = form.get("file") as File;
-  const parsed = schema.safeParse({
-    styleId: (form.get("styleId") as string) || undefined,
-    scope: (form.get("scope") as string) || "single",
-    instruction: (form.get("instruction") as string) || undefined,
-  });
-  if (!parsed.success) return NextResponse.json({ error: "bad_request" }, { status: 400 });
-
-  if (!file.type.startsWith("image/")) return NextResponse.json({ error: "not_image" }, { status: 400 });
-
-  const maxMb = await getSettingNumber("max_original_mb", 20);
-  if (file.size > maxMb * 1024 * 1024) return NextResponse.json({ error: "too_large" }, { status: 413 });
-
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const savedUpload = await saveUpload(buffer, file.type);
-  const originalId = savedUpload.id;
-  const originalUrl = savedUpload.url;
-
-  const styles: Style[] = await activeStyles();
-  let targetStyles: Style[] = [];
-  const scope = parsed.data.scope;
-
-  if (scope === "single") {
-    const st = styles.find((s) => s.id === parsed.data.styleId);
-    if (!st) return NextResponse.json({ error: "style_not_found" }, { status: 400 });
-    targetStyles = [st];
-  } else {
-    targetStyles = styles;
-  }
-
-  const charge = await authorizeGeneration(user, scope);
-  if (!charge.ok) {
-    return NextResponse.json({ error: charge.error }, { status: charge.error === "no_trial" ? 403 : 402 });
-  }
-
-  const generations = [];
-  for (const style of targetStyles) {
-    try {
-      const payload = await runStyleGeneration({
-        user,
-        style,
-        source: { buffer, mime: file.type },
-        originalId,
-        originalUrl,
-        consumed: charge.consumed,
-        instruction: parsed.data.instruction || null,
-        origin: "web",
-      });
-      generations.push(payload);
-    } catch (e) {
-      generations.push({
-        id: "",
-        styleId: style.id,
-        styleSlug: style.slug,
-        styleName: { ru: style.name.ru, en: style.name.en },
-        originalUrl,
-        resultUrl: originalUrl,
-        status: "failed",
-        provider: "—",
-        mode: charge.consumed,
-        demoConfig: null,
-        note: null,
-        error: e instanceof Error ? e.message : "unknown",
-        kind: "design",
-        instruction: parsed.data.instruction || null,
-        parentGenerationId: null,
-        changedCategories: [],
-        shopping: { items: [], mode: "list", detector: "off", note: null, updatedAt: Date.now() },
-        published: false,
-        createdAt: Date.now(),
-      });
-    }
-  }
-
-  const { isUnlimitedMode } = await import("@/lib/config");
-  return NextResponse.json({
-    ok: true,
-    scope,
-    consumed: charge.consumed,
-    unlimited: await isUnlimitedMode(),
-    isDemo: generations.every((g) => g.status === "done" && g.resultUrl === g.originalUrl),
-    generations,
-  });
 }

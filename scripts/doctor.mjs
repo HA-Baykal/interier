@@ -116,6 +116,10 @@ async function main() {
   const adm = adminToken ? await get("/api/admin/settings", adminToken) : { status: 0 };
   const settings = { ...(adm.json?.settings || {}), ...(bots.json?.raw || {}) };
   const platforms = bots.json?.platforms || [];
+  // Telegram is delivered by the login route on purpose: one webhook carries the
+  // confirmation of entry and the whole bot application.
+  const paths = bots.json?.webhookPaths || {};
+  const tgPath = paths.telegram || "/api/auth/telegram/webhook";
   if (bots.status !== 200) {
     add("warn", "боты", "нет данных /api/admin/bots — проверяю только публичные эндпоинты", "нужен токен администратора (--admin email:pass или --token …)");
   }
@@ -136,7 +140,7 @@ async function main() {
     if (!p.me) add("warn", name, "токен задан, но getMe не ответил", "проверьте токен и доступность api-хоста из сети сервера");
     else add("ok", name, `подключён: @${p.me.username || p.me.id || "?"}`);
 
-    const expected = `${BASE}/api/bots/${p.platform}/webhook`;
+    const expected = `${BASE}${paths[p.platform] || (p.platform === "telegram" ? tgPath : `/api/bots/${p.platform}/webhook`)}`;
     if (p.webhook) {
       const sameHost = (() => {
         try {
@@ -150,12 +154,15 @@ async function main() {
     } else {
       add("warn", `${name} вебхук`, `не зарегистрирован (ожидается ${expected})`, "нажмите «🔗 Подключить вебхуки» в /admin → Боты");
     }
-    if (p.error) add("fail", `${name} доставка`, p.error, "Telegram откладывает доставки при недоступном URL: откройте /api/bots/telegram/webhook в браузере, проверьте сертификат и порт 443");
+    if (p.error) add("fail", `${name} доставка`, p.error, `Telegram откладывает доставки при недоступном URL: откройте ${tgPath} в браузере (должен быть JSON с «service»), проверьте сертификат и порт 443`);
   }
 
   /* --- 7. webhook is protected ------------------------------------------ */
-  const probe = await post(`/api/bots/telegram/webhook`, { update_id: 0, fake: true });
-  if (probe.status === 403) add("ok", "безопасность", "вебхук закрыт секретом (403 без заголовка)");
+  const health = await get(tgPath);
+  if (health.status === 200 && health.json?.service) add("ok", "вебхук входа/бота", `${tgPath} отвечает: ${health.json.service}`);
+  else add("fail", "вебхук входа/бота", `${tgPath} → ${health.status}`, "на этом адресе Telegram получает и подтверждения входа, и сообщения приложения");
+  const probe = await post(tgPath, { update_id: 0, fake: true });
+  if (probe.status === 403 || probe.status === 401) add("ok", "безопасность", `вебхук закрыт секретом (${probe.status} без заголовка)`);
   else if (probe.status === 200)
     add(
       "warn",
@@ -163,7 +170,7 @@ async function main() {
       "telegram_webhook_secret не задан — вебхук принимает любой POST",
       "«Подключить вебхуки» генерирует секрет автоматически: нажмите её и обновите статус"
     );
-  else add("warn", "безопасность", `вебхук отвечает ${probe.status}`, "проверьте, что маршрут /api/bots/telegram/webhook доступен");
+  else add("warn", "безопасность", `вебхук отвечает ${probe.status}`, `проверьте, что маршрут ${tgPath} доступен и не закрыт защитой Vercel`);
 
   /* --- 8. mini app url + owner ---------------------------------------- */
   if (settings.telegram_mini_app_url) {

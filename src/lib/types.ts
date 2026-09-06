@@ -1,3 +1,5 @@
+import type { ImageQuality } from "./generation/quality";
+
 export type Locale = "ru" | "en";
 
 export type StyleConfig = {
@@ -35,7 +37,7 @@ export type Package = {
 
 export type User = {
   id: string;
-  email: string;
+  email: string | null;
   passwordHash: string;
   name: string;
   createdAt: number;
@@ -54,6 +56,9 @@ export type User = {
   referralCode: string;
   referredBy: string | null;
   isAdmin: boolean;
+  verifiedIdentities?: { provider: "telegram" | "vk" | "max"; subject: string; verifiedAt: number }[];
+  identityVerifiedAt?: number | null;
+  identityVerifiedBy?: "email" | "telegram" | "vk" | "max" | null;
 };
 
 export type BotPlatform = "telegram" | "vk" | "max";
@@ -121,6 +126,15 @@ export type Generation = {
   error: string | null;
   mode: "trial" | "credit" | "unlimited";
   provider: string;
+  /** Actual request quality for GPT Image 2; absent on legacy/other-model records. */
+  quality?: ImageQuality;
+  resolution?: string;
+  testProfile?: string;
+  /** Public-tariff estimate, never reported as an actual debit. */
+  estimatedCostRub?: number;
+  durationMs?: number;
+  /** Counts reserved free images, including failed starts, for the rolling safety limit. */
+  freeBudgeted?: boolean;
   createdAt: number;
   /** Whether the owner opted to showcase this design in the public gallery. */
   published: boolean;
@@ -234,7 +248,7 @@ export type Reward = {
 export type Referral = {
   id: string;
   referrerId: string;
-  referredEmail: string;
+  referredEmail: string | null;
   referredUserId: string | null;
   rewarded: boolean;
   createdAt: number;

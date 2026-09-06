@@ -12,6 +12,13 @@ import { db } from "../db";
 export type DispatchResult = { reply: BotReply; sent: number; runTask: () => Promise<void> };
 
 export async function dispatchInbound(inbound: BotInbound, hostHint?: string | null): Promise<DispatchResult> {
+  // In a group the bot only serves chats it was explicitly attached to: an
+  // unrelated group must not be able to create accounts or spend credits.
+  if (inbound.isGroup && !(inbound.text || "").trim().startsWith("/")) {
+    const chat = (await db()).botChats.find((c) => c.platform === inbound.platform && c.chatId === String(inbound.chatId));
+    if (!chat?.userId) return { reply: { messages: [] }, sent: 0, runTask: async () => {} };
+  }
+
   const reply = await (await import("./engine")).handleBotUpdate(inbound, hostHint);
 
   // 1. Kill the button spinner / show the toast right away.

@@ -18,15 +18,12 @@ export async function addCredits(userId: string, amount: number) {
 }
 
 export async function spendCredit(userId: string): Promise<boolean> {
-  let ok = false;
-  await mutate((d) => {
+  return mutate((d) => {
     const u = d.users.find((x) => x.id === userId);
-    if (u && u.credits > 0) {
-      u.credits -= 1;
-      ok = true;
-    }
+    if (!u || u.credits <= 0) return false;
+    u.credits--;
+    return true;
   });
-  return ok;
 }
 
 /** Detect the subscribing user (Telegram) and grant the one-time bonus. */
@@ -36,18 +33,13 @@ export async function grantTelegramBonus(
   externalId: number | null,
   username: string | null
 ): Promise<{ granted: boolean; already: boolean; credits: number }> {
-  const d = await db();
-  const existing = d.rewards.find(
-    (r) => r.userId === user.id && r.channel === channel
-  );
-  if (existing?.granted) return { granted: false, already: true, credits: 0 };
-
   const amount = await rewardAmount(channel === "telegram" ? "reward_telegram" : "reward_vk", 1);
 
-  await mutate((draft) => {
+  return mutate((draft) => {
     let reward = draft.rewards.find(
       (r) => r.userId === user.id && r.channel === channel
     );
+    if (reward?.granted) return { granted: false, already: true, credits: 0 };
     if (!reward) {
       reward = {
         id: uid("rw"),
@@ -73,9 +65,8 @@ export async function grantTelegramBonus(
       }
       u.credits += amount;
     }
+    return { granted: true, already: false, credits: amount };
   });
-
-  return { granted: true, already: false, credits: amount };
 }
 
 export type ReferralResult = {
@@ -91,43 +82,20 @@ export async function grantReferralBonus(
   referredUserId: string | null
 ): Promise<ReferralResult> {
   const amount = await rewardAmount("reward_referral", 1);
-  let outcome: ReferralResult = { ok: false };
-
-  await mutate((d) => {
-    const existing = d.referrals.find(
-      (r) => r.referrerId === referrerUserId && r.referredEmail === referredEmail
-    );
+  return mutate<ReferralResult>((d) => {
+    const existing = d.referrals.find((r) => r.referrerId === referrerUserId && r.referredEmail === referredEmail);
+    if (existing?.rewarded) return { ok: false, alreadyRewarded: true };
+    const user = d.users.find((u) => u.id === referrerUserId);
+    if (!user) return { ok: false };
     if (existing) {
-      if (existing.rewarded) outcome = { ok: false, alreadyRewarded: true };
-      else {
-        existing.rewarded = true;
-        existing.referredUserId = referredUserId;
-        const u = d.users.find((x) => x.id === referrerUserId);
-        if (u) {
-          u.credits += amount;
-          outcome = { ok: true, credits: amount };
-        }
-      }
-      return;
+      existing.rewarded = true;
+      existing.referredUserId = referredUserId;
+    } else {
+      d.referrals.push({ id: uid("ref"), referrerId: referrerUserId, referredEmail, referredUserId, rewarded: true, createdAt: now() });
     }
-
-    d.referrals.push({
-      id: uid("ref"),
-      referrerId: referrerUserId,
-      referredEmail,
-      referredUserId,
-      rewarded: true,
-      createdAt: now(),
-    } as Referral);
-
-    const u = d.users.find((x) => x.id === referrerUserId);
-    if (u) {
-      u.credits += amount;
-      outcome = { ok: true, credits: amount };
-    }
+    user.credits += amount;
+    return { ok: true, credits: amount };
   });
-
-  return outcome;
 }
 
 /** Count how many friends a user has successfully invited. */
@@ -154,7 +122,7 @@ export async function authorizeGeneration(
   scope: "single" | "all" = "single"
 ): Promise<ChargeOutcome> {
   const { isUnlimitedMode } = await import("./config");
-  if (await isUnlimitedMode()) return { ok: true, consumed: "unlimited" };
+  if (await isUnlimitedMode(user)) return { ok: true, consumed: "unlimited" };
 
   if (scope === "all") {
     if (user.trialUsed) return { ok: false, error: "no_trial" };

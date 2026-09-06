@@ -11,9 +11,18 @@ import fs from "fs";
 import { db, mutate, now, uid } from "../db";
 import { addCredits } from "../billing";
 import { BotPlatform, DesignItem, Generation, ShoppingList, Style, User } from "../types";
-import { activeStyles, generationMode } from "../config";
+import { activeStyles } from "../config";
 import { resolveImageUrl, saveUpload } from "@/app/api/upload/service";
 import { executeRealGeneration, planGeneration } from "./provider";
+import { getGenerationSettings, validateCompatibleConfig } from "./settings";
+import { generationRequestSettings } from "./request-settings";
+import { DEFAULT_IMAGE_QUALITY, supportsImageQuality, type ImageQuality } from "./quality";
+import { assertFreeImageBudget } from "./free-quota";
+import { getTestProfile } from "./model-catalog";
+import { assertGenApiImageType } from "./genapi-payload";
+import { enforceRateLimit } from "../security-store";
+import { assertDurableDatabase, assertDurableUploads } from "../storage-config";
+import { RequestError, safeErrorMessage } from "../errors";
 import { buildInstructionPrompt, parseInstruction } from "./instruction";
 import { buildShoppingList, detectDesignItems, finalizeItems, shoppingSettings } from "../shopping";
 import { categoryById, buildQuery, detectAttributes, matchCategories } from "../marketplaces";
@@ -26,8 +35,11 @@ export type GenPayload = {
   originalUrl: string;
   resultUrl: string | null;
   status: Generation["status"];
+  durationMs: number;
   provider: string;
   mode: Generation["mode"];
+  quality: string | null;
+  estimatedCostRub: number | null;
   demoConfig: Style["config"] | null;
   note: string | null;
   error: string | null;
@@ -82,17 +94,87 @@ export type RunDesignParams = {
   source: { buffer: Buffer; mime: string };
   originalId: string;
   originalUrl: string;
-  consumed: Generation["mode"];
   instruction?: string | null;
   parent?: Generation | null;
   origin?: BotPlatform | "web" | null;
   /** Skip the AI/vision detection (e.g. caller will do it later). */
   skipShopping?: boolean;
+  /** "all" = the free trial renders this whole batch (web parity). */
+  scope?: "single" | "all";
+  /** Balance was already taken by the caller for a multi-style batch. */
+  preCharged?: Charge;
+  /**
+   * Admin-only per-request overrides (Model Lab). Non-admins always get the
+   * globally configured model/quality, exactly like the website does.
+   */
+  editInput?: { profileId?: string; quality?: string; resolution?: string; model?: string } | null;
 };
 
+export type Charge = { consumed: Generation["mode"]; freeBudgeted: boolean };
+
+/**
+ * Decide how a generation is paid for, with exactly the rules the website
+ * uses: admin test mode is free, the first render burns the trial (counted
+ * against the rolling global free-image budget), later renders a credit.
+ * Used for a multi-style batch, where one trial covers the whole set.
+ */
+export async function chargeForGeneration(user: User, scope: "single" | "all" = "single"): Promise<Charge> {
+  return mutate<Charge>((d) => {
+    const current = d.users.find((x) => x.id === user.id);
+    if (!current) throw new RequestError("unauthorized", "Требуется вход.", 401);
+    if (await_unlimited(d) && current.isAdmin) return { consumed: "unlimited", freeBudgeted: false };
+    if (!current.trialUsed) {
+      current.trialUsed = true;
+      assertFreeImageBudget(d, current, 1);
+      return { consumed: "trial", freeBudgeted: current.isAdmin !== true };
+    }
+    if (scope === "all") throw new RequestError("no_trial", "Бесплатная генерация уже использована.", 403);
+    if (current.credits <= 0) throw new RequestError("no_credits", "Недостаточно генераций на балансе.", 402);
+    current.credits -= 1;
+    return { consumed: "credit", freeBudgeted: false };
+  });
+}
+
+function await_unlimited(d: { settings: { key: string; value: string }[] }): boolean {
+  return d.settings.find((x) => x.key === "test_unlimited")?.value === "1";
+}
+
+/**
+ * The one place a design is produced. Website and bots share it, so a photo
+ * sent in Telegram behaves exactly like a upload on the site: same guards,
+ * same provider selection, same record, same shopping list of purchasable
+ * details.
+ */
 export async function runStyleGeneration(p: RunDesignParams): Promise<GenPayload> {
-  const mode = await generationMode();
-  const isDemo = mode !== "compatible" && mode !== "replicate";
+  // A deployment that cannot keep the result must say so, not half-generate.
+  assertDurableDatabase();
+  assertDurableUploads();
+  await enforceRateLimit("generation", p.user.id, 6, 10 * 60_000);
+
+  const base = await getGenerationSettings();
+  const requestSettings = generationRequestSettings(base, p.user.isAdmin, {
+    scope: p.scope ?? "single",
+    quality: p.editInput?.quality as ImageQuality | undefined,
+    testProfile: p.editInput?.profileId ?? undefined,
+  });
+  const cfg = requestSettings.compatible;
+  const isDemo = requestSettings.mode === "demo";
+  if (!isDemo && !requestSettings.aiConfigured) {
+    throw new RequestError("ai_not_configured", "Ключ ИИ не настроен. Администратору нужно сохранить API-ключ в настройках.", 503);
+  }
+  const generationQuality = supportsImageQuality(requestSettings.mode, cfg.provider, cfg.model)
+    ? cfg.quality ?? DEFAULT_IMAGE_QUALITY
+    : undefined;
+  const resolution = requestSettings.mode === "compatible" && cfg.provider === "genapi" && cfg.model === "nano-banana-pro"
+    ? cfg.resolution ?? "2K"
+    : undefined;
+  const profile = p.editInput?.profileId ? getTestProfile(p.editInput.profileId) : undefined;
+  if (requestSettings.mode === "compatible") {
+    validateCompatibleConfig(cfg);
+    // GenAPI rejects formats a model does not accept; check before charging.
+    if (cfg.provider === "genapi") assertGenApiImageType(cfg.model, p.source.mime);
+  }
+
   const instructionText = (p.instruction || "").trim() || null;
   const parsed = instructionText ? parseInstruction(instructionText) : null;
 
@@ -105,7 +187,7 @@ export async function runStyleGeneration(p: RunDesignParams): Promise<GenPayload
       ? `${buildInstructionPrompt({ styleNameEn: p.style.name.en, instruction: parsed })} Keep the overall ${p.style.name.en} styling of the room.`
       : null;
 
-  const plan = await planGeneration(p.style, {
+  const plan = await planGeneration(p.style, requestSettings, {
     promptOverride,
     instructionSummary: parsed?.summary,
   });
@@ -113,18 +195,42 @@ export async function runStyleGeneration(p: RunDesignParams): Promise<GenPayload
   const genId = uid("gen");
   const createdAt = now();
 
-  await mutate((d) => {
-    const rec: Generation = {
+  // Balance and record are decided together: two parallel requests can never
+  // spend the same trial or the same credit twice.
+  const { consumed, freeBudgeted } = await mutate<Charge>((d) => {
+    const current = d.users.find((x) => x.id === p.user.id);
+    if (!current) throw new RequestError("unauthorized", "Требуется вход.", 401);
+    let paid: Charge = { consumed: "unlimited", freeBudgeted: false };
+    if (!p.preCharged) {
+      const unlimited = await_unlimited(d) && current.isAdmin;
+      if (!unlimited) {
+        if (!current.trialUsed) {
+          current.trialUsed = true;
+          assertFreeImageBudget(d, current, 1);
+          paid = { consumed: "trial", freeBudgeted: current.isAdmin !== true };
+        } else {
+          if (current.credits <= 0) throw new RequestError("no_credits", "Недостаточно генераций на балансе.", 402);
+          current.credits -= 1;
+          paid = { consumed: "credit", freeBudgeted: false };
+        }
+      }
+    }
+    d.generations.push({
       id: genId,
       userId: p.user.id,
       styleId: p.style.id,
       originalId: p.originalId,
       originalUrl: p.originalUrl,
-      resultUrl: null,
+      resultUrl: isDemo ? p.originalUrl : null,
       status: isDemo ? "done" : "processing",
       error: null,
-      mode: p.consumed,
+      mode: paid.consumed,
+      freeBudgeted: paid.freeBudgeted,
       provider: plan.provider,
+      quality: generationQuality,
+      resolution,
+      testProfile: p.editInput?.profileId ?? undefined,
+      estimatedCostRub: profile?.estimatedRub,
       createdAt,
       published: false,
       kind: p.parent ? "edit" : "design",
@@ -133,65 +239,50 @@ export async function runStyleGeneration(p: RunDesignParams): Promise<GenPayload
       changedCategories: parsed?.targetCategories ?? [],
       shopping: null,
       origin: p.origin ?? "web",
-    };
-    d.generations.push(rec);
+    });
+    return paid;
   });
 
   let resultUrl: string | null = isDemo ? p.originalUrl : null;
   let provider = plan.provider;
   let status: Generation["status"] = isDemo ? "done" : "processing";
-  let note: string | null = isDemo ? plan.note : plan.note;
+  let note: string | null = plan.note;
   let error: string | null = null;
-  let demoConfig: Style["config"] | null = isDemo ? p.style.config : null;
+  const demoConfig: Style["config"] | null = isDemo ? p.style.config : null;
+  const startedAt = Date.now();
 
   if (!isDemo) {
     try {
-      const res = await executeRealGeneration(plan, p.source.buffer, p.source.mime);
-      if (res) {
-        resultUrl = res.resultUrl;
-        provider = res.provider;
-        status = "done";
-        note = "Готово.";
-      } else {
-        resultUrl = p.originalUrl;
-        provider = "Demo (нет ключа)";
-        status = "done";
-        demoConfig = p.style.config;
-        note = "Ключ ИИ не задан — показан демо-предпросмотр.";
-      }
+      // A Blob-stored original can be handed to the provider as a URL instead
+      // of being re-uploaded as base64 (cheaper, and required by some models).
+      const asUrl = /^https:\/\//.test(p.originalUrl) ? p.originalUrl : undefined;
+      const res = await executeRealGeneration(plan, p.source.buffer, p.source.mime, asUrl);
+      if (!res) throw new Error("AI provider returned no image");
+      resultUrl = res.resultUrl;
+      provider = res.provider;
+      status = "done";
+      note = "Готово.";
     } catch (e) {
       status = "failed";
-      error = e instanceof Error ? e.message : "unknown";
+      // Raw provider errors (and the key itself) never leave the server.
+      error = safeErrorMessage(e, [base.compatible.apiKey]);
       note = "Ошибка генерации: " + error;
       // A failed render must not eat the user's credit.
-      if (p.consumed === "credit") await addCredits(p.user.id, 1);
+      if (consumed === "credit") await addCredits(p.user.id, 1);
     }
   }
+  const durationMs = Math.max(0, Date.now() - startedAt);
 
   // --- Shopping list (details of the design + "where to buy" links) ---------
-  const settings = await shoppingSettings();
-  let shopping: ShoppingList = buildShoppingList([], { detector: "off", note: null });
-
-  if (settings.enabled && settings.auto && !p.skipShopping && status === "done") {
-    const texts = [
-      p.style.name.ru,
-      p.style.name.en,
-      p.style.description.ru,
-      instructionText,
-      plan.prompt?.slice(0, 400),
-    ];
-    const detection = await detectDesignItems({
-      imageRef: resultUrl,
-      texts,
-      targets: parsed?.targetCategories,
-      styleTail: `в стиле ${p.style.name.ru.toLowerCase()}`,
-      settings,
-    });
-    shopping = buildShoppingList(detection.items, {
-      detector: detection.detector,
-      note: detection.note,
-    });
-  }
+  const shopping = p.skipShopping || status !== "done"
+    ? buildShoppingList([], { detector: "off", note: null })
+    : await detectShopping({
+        imageRef: resultUrl,
+        style: p.style,
+        instruction: instructionText,
+        targets: parsed?.targetCategories,
+        prompt: plan.prompt,
+      });
 
   await mutate((d) => {
     const rec = d.generations.find((g) => g.id === genId);
@@ -201,6 +292,7 @@ export async function runStyleGeneration(p: RunDesignParams): Promise<GenPayload
     rec.provider = provider;
     rec.error = error;
     rec.shopping = shopping;
+    rec.durationMs = durationMs;
   });
 
   const styleName = { ru: p.style.name.ru, en: p.style.name.en };
@@ -214,7 +306,10 @@ export async function runStyleGeneration(p: RunDesignParams): Promise<GenPayload
     resultUrl,
     status,
     provider,
-    mode: p.consumed,
+    mode: consumed,
+    quality: generationQuality ?? null,
+    estimatedCostRub: profile?.estimatedRub ?? null,
+    durationMs,
     demoConfig,
     note,
     error,
@@ -237,8 +332,9 @@ export async function runInstructionEdit(params: {
   generationId: string;
   instruction: string;
   styleOverrideId?: string | null;
-  consumed?: Generation["mode"];
   origin?: BotPlatform | "web" | null;
+  /** Admin-only Model Lab overrides, forwarded as-is. */
+  editInput?: RunDesignParams["editInput"];
 }): Promise<{ payload: GenPayload } | { error: string }> {
   const d = await db();
   const parent = d.generations.find((g) => g.id === params.generationId);
@@ -263,8 +359,8 @@ export async function runInstructionEdit(params: {
     source: img,
     originalId: saved.id,
     originalUrl: saved.url,
-    consumed: params.consumed ?? "unlimited",
     instruction: params.instruction,
+    editInput: params.editInput ?? null,
     parent,
     origin: params.origin ?? "web",
   });
@@ -349,6 +445,66 @@ function matchFirstCategory(text: string): string | null {
  * Shared by the web "Обновить подбор" button and the bot, so both use exactly
  * the same prompt, the same marketplace configuration and the same limits.
  */
+/**
+ * Detect the purchasable details of a finished design and store them on the
+ * record. Exported because the website route produces generations itself and
+ * must end up with exactly the same data as the bot pipeline.
+ */
+export async function detectShopping(input: {
+  imageRef: string | null;
+  style: Style;
+  instruction?: string | null;
+  targets?: string[] | null;
+  prompt?: string | null;
+}): Promise<ShoppingList> {
+  const settings = await shoppingSettings();
+  if (!settings.enabled || !settings.auto || !input.imageRef) {
+    return buildShoppingList([], { detector: "off", note: null });
+  }
+  try {
+    return await runDetection(input, settings);
+  } catch (e) {
+    // A design that rendered successfully must never be lost because the
+    // "where to buy" step (vision API) had a bad minute.
+    console.warn("[shopping] detection failed:", e instanceof Error ? e.message : e);
+    return buildShoppingList([], { detector: "off", note: "Не удалось собрать список деталей — попробуйте обновить его позже." });
+  }
+}
+
+async function runDetection(input: Parameters<typeof detectShopping>[0], settings: Awaited<ReturnType<typeof shoppingSettings>>): Promise<ShoppingList> {
+  const detection = await detectDesignItems({
+    imageRef: input.imageRef,
+    texts: [input.style.name.ru, input.style.name.en, input.style.description.ru, input.instruction || null, input.prompt?.slice(0, 400)],
+    targets: input.targets ?? undefined,
+    styleTail: `в стиле ${input.style.name.ru.toLowerCase()}`,
+    settings,
+  });
+  return buildShoppingList(detection.items, { detector: detection.detector, note: detection.note });
+}
+
+/** Attach (and persist) the shopping list of an existing generation. */
+export async function attachShoppingToGeneration(
+  generationId: string,
+  input: { instruction?: string | null; targets?: string[] | null } = {}
+): Promise<ShoppingList | null> {
+  const gen = (await db()).generations.find((g) => g.id === generationId);
+  if (!gen || gen.status !== "done" || !gen.resultUrl) return null;
+  const style = (await activeStyles()).find((s) => s.id === gen.styleId) || null;
+  if (!style) return null;
+  const shopping = await detectShopping({
+    imageRef: gen.resultUrl,
+    style,
+    instruction: input.instruction ?? gen.instruction ?? null,
+    targets: input.targets ?? gen.changedCategories ?? undefined,
+    prompt: null,
+  });
+  await mutate((d) => {
+    const rec = d.generations.find((g) => g.id === generationId);
+    if (rec) rec.shopping = shopping;
+  });
+  return shopping;
+}
+
 export async function regenerateShopping(generationId: string): Promise<boolean> {
   const gen = (await db()).generations.find((g) => g.id === generationId);
   if (!gen) return false;

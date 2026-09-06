@@ -37,3 +37,11 @@ export function testProfileName(id: string): string {
   const profile = getTestProfile(id);
   return profile ? `${GENAPI_MODELS[profile.model].name} · ${profile.variant}` : id;
 }
+
+
+export function activeProfileForConfig(cfg: { provider: string; model: string; quality?: ImageQuality; resolution?: string }): TestProfile | undefined {
+  if (cfg.provider !== "genapi") return undefined;
+  return MODEL_TEST_PROFILES.find(profile => profile.model === cfg.model
+    && (profile.quality === undefined || profile.quality === cfg.quality)
+    && (profile.resolution === undefined || profile.resolution === cfg.resolution));
+}

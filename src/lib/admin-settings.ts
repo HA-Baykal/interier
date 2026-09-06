@@ -5,6 +5,7 @@ import { RequestError } from "./errors";
 import { resolveGenerationSettings, validateCompatibleConfig } from "./generation/settings";
 import { assertDurableDatabase } from "./storage-config";
 import type { DbShape } from "./types";
+import { activeProfileForConfig, getTestProfile } from "./generation/model-catalog";
 
 const schema = z.object({
   generation_mode: z.enum(["demo", "compatible", "replicate"]).optional(),
@@ -17,6 +18,8 @@ const schema = z.object({
   compatible_base_url: z.string().max(500).optional(),
   compatible_api_key: z.string().max(1000).optional(),
   compatible_model: z.string().max(200).optional(),
+  compatible_quality: z.enum(["", "low", "medium", "high"]).optional(),
+  compatible_resolution: z.enum(["", "1K", "2K", "4K"]).optional(),
 });
 
 export function adminSettingsView(d: DbShape) {
@@ -34,6 +37,9 @@ export function adminSettingsView(d: DbShape) {
     // Write-only field. A saved key is never sent to a browser, even an admin's.
     compatible_api_key: "",
     compatible_model: config.compatible.model,
+    compatible_quality: config.compatible.quality || "",
+    compatible_resolution: config.compatible.resolution || "",
+    active_profile: activeProfileForConfig(config.compatible)?.id || null,
     compatible_configured: !!config.compatible.apiKey,
     compatible_key_source: config.keySource,
   };
@@ -64,6 +70,30 @@ export async function updateAdminSettings(body: unknown) {
     const cfg = resolveGenerationSettings(draft.settings).compatible;
     try { validateCompatibleConfig({ ...cfg, apiKey: cfg.apiKey || "not-configured" }); }
     catch (e) { throw new RequestError("invalid_ai_config", e instanceof Error ? e.message : "Invalid AI configuration"); }
+  });
+  return adminSettingsView(await db());
+}
+
+
+/** Explicitly change the live site's profile, atomically, without copying/exposing an environment key. */
+export async function activateGenApiProfile(profileId: string) {
+  assertDurableDatabase();
+  const profile = getTestProfile(profileId);
+  if (!profile) throw new RequestError("unknown_profile", "Выберите модель из списка.");
+  await mutate(draft => {
+    const current = resolveGenerationSettings(draft.settings).compatible;
+    if (current.provider !== "genapi") throw new RequestError("provider_mismatch", "Сначала настройте провайдер GenAPI; ключ другого провайдера использовать нельзя.");
+    if (!current.apiKey) throw new RequestError("ai_not_configured", "Сначала сохраните ключ GenAPI.", 503);
+    const changes: Record<string, string> = {
+      generation_mode: "compatible", generation_mode_explicit: "1", compatible_settings_saved: "1",
+      compatible_provider: current.provider, compatible_base_url: current.baseUrl,
+      compatible_model: profile.model, compatible_quality: profile.quality || "", compatible_resolution: profile.resolution || "",
+    };
+    for (const [key, value] of Object.entries(changes)) {
+      const item = draft.settings.find(setting => setting.key === key);
+      if (item) item.value = value; else draft.settings.push({ key, value });
+    }
+    validateCompatibleConfig(resolveGenerationSettings(draft.settings).compatible);
   });
   return adminSettingsView(await db());
 }

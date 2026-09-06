@@ -187,7 +187,7 @@ test("422 validation details reach the UI and history, with no demo substitute, 
 });
 
 
-test("a 50 RUB provider fixture accepts one medium image, keeps history and global defaults, and rejects the legacy high price", async (t) => {
+test("a 50 RUB provider fixture accepts an admin medium test and keeps the site default at low", async (t) => {
   await seed.setSetting("compatible_api_key", "sk_quality_test");
   await seed.setSetting("test_unlimited", "0");
   const before = JSON.stringify((await store.db()).settings);
@@ -201,7 +201,7 @@ test("a 50 RUB provider fixture accepts one medium image, keeps history and glob
       assert.equal(payload.image_size, "1024x1024");
       assert.equal(payload.num_images, 1);
       assert.equal(payload.output_format, "png");
-      const cost = payload.quality === "medium" ? 15 : 55;
+      const cost = payload.quality === "low" ? 2.5 : payload.quality === "medium" ? 15 : 55;
       if (balance < cost) return Response.json({ error: "Недостаточно средств" }, { status: 402 });
       balance -= cost;
       return Response.json({ request_id: 701 });
@@ -221,13 +221,12 @@ test("a 50 RUB provider fixture accepts one medium image, keeps history and glob
   const list = await (await history.GET(req)).json();
   assert.equal(list.generations[0].quality, "medium");
   assert.equal(list.generations[0].resultUrl, medium.generations[0].resultUrl);
-  // Omission must retain the old contract; a medium test must not silently change it.
+  // Omission uses the site-wide Low; an isolated Medium test must not change it.
   const legacy = await (await generate.POST(request())).json();
-  assert.equal(legacy.generations[0].quality, "high");
-  assert.equal(legacy.generations[0].status, "failed");
-  assert.match(legacy.generations[0].note, /402/);
-  assert.deepEqual(qualities, ["medium", "high"]);
-  assert.equal(balance, 35);
+  assert.equal(legacy.generations[0].quality, "low");
+  assert.equal(legacy.generations[0].status, "done");
+  assert.deepEqual(qualities, ["medium", "low"]);
+  assert.equal(balance, 32.5);
   assert.equal(JSON.stringify((await store.db()).settings), before);
 });
 

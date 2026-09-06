@@ -25,7 +25,7 @@ test("GenAPI request sends the image, polls uncached with bounded calls, and ret
       const data = JSON.parse(String(init.body));
       assert.ok(data.image_urls[0].startsWith("data:image/png;base64,"));
       assert.equal(data.num_images, 1);
-      assert.equal(data.quality, "high");
+      assert.equal(data.quality, "low");
       assert.equal(data.image_size, "1024x1024");
       assert.equal(data.output_format, "png");
       assert.equal(Object.hasOwn(data, "callback_url"), false);
@@ -98,7 +98,7 @@ test("GenAPI sends a saved public photo URL without a null callback or inline im
     assert.equal(url, "https://api.gen-api.ru/api/v1/networks/gpt-image-2");
     assert.equal(init.method, "POST");
     assert.deepEqual(JSON.parse(String(init.body)), {
-      prompt: "Keep the walls", image_urls: [original], quality: "high",
+      prompt: "Keep the walls", image_urls: [original], quality: "low",
       image_size: "1024x1024", num_images: 1, output_format: "png",
     });
     assert.ok(!String(init.body).includes("data:image"));

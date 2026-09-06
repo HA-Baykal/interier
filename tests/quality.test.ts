@@ -18,9 +18,9 @@ before(async () => {
 after(() => cleanup());
 const cfg = { provider: "genapi" as const, baseUrl: "https://api.gen-api.ru", model: "gpt-image-2", apiKey: "sk_quality_fixture_not_real" };
 
-test("the admin test starts at medium while existing clients keep high and the same image size", () => {
+test("the admin test starts at medium while the site defaults to low and the same image size", () => {
   assert.equal(ADMIN_TEST_IMAGE_QUALITY, "medium");
-  assert.equal(DEFAULT_IMAGE_QUALITY, "high");
+  assert.equal(DEFAULT_IMAGE_QUALITY, "low");
   assert.equal(GPT_IMAGE_2_SIZE, "1024x1024");
   assert.deepEqual(IMAGE_QUALITIES, ["low", "medium", "high"]);
 });
@@ -35,15 +35,15 @@ test("the price hints are tied to GPT Image 2, not applied to demo, Replicate or
   assert.equal(GPT_IMAGE_2_PRICE_SOURCE, "https://gen-api.ru/model/gpt-image-2");
 });
 
-test("a per-request choice does not become a global setting through the resolver", () => {
+test("stored site quality is respected while per-request overrides do not mutate it", () => {
   const resolved = settings.resolveGenerationSettings([
     { key: "compatible_api_key", value: cfg.apiKey },
-    { key: "compatible_quality", value: "medium" }, // Not a supported global setting.
+    { key: "compatible_quality", value: "medium" }, // Explicitly configured site quality.
   ], {});
-  assert.equal(resolved.compatible.quality, undefined);
-  const selected = { ...resolved.compatible, quality: "medium" as const };
+  assert.equal(resolved.compatible.quality, "medium");
+  const selected = { ...resolved.compatible, quality: "high" as const };
   settings.validateCompatibleConfig(selected);
-  assert.equal(resolved.compatible.quality, undefined);
+  assert.equal(resolved.compatible.quality, "medium");
 });
 
 test("invalid direct-call overrides fail before contacting the paid provider", async (t) => {

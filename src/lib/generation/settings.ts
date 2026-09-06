@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { cleanConnectionValue } from "../env";
 import type { Setting } from "../types";
-import { isImageQuality, supportsImageQuality, type ImageQuality } from "./quality";
+import { DEFAULT_IMAGE_QUALITY, isImageQuality, supportsImageQuality, type ImageQuality } from "./quality";
 import { isGenApiModel, isNanoResolution, type NanoResolution } from "./model-catalog";
 
 export type GenerationMode = "demo" | "compatible" | "replicate";
@@ -11,7 +11,7 @@ export type CompatibleConfig = {
   baseUrl: string;
   apiKey: string;
   model: string;
-  /** Per-request override, never saved by the global settings resolver. */
+  /** Effective site quality; an isolated admin test may override it for one request. */
   quality?: ImageQuality;
   resolution?: NanoResolution;
 };
@@ -41,7 +41,11 @@ export function resolveGenerationSettings(settings: Setting[], env: Record<strin
     if (mode === "demo" && apiKey) mode = "compatible";
   }
   const effectiveMode: GenerationMode = mode === "compatible" || mode === "replicate" ? mode : "demo";
-  const compatible: CompatibleConfig = { provider, baseUrl, apiKey, model };
+  const compatible: CompatibleConfig = {
+    provider, baseUrl, apiKey, model,
+    ...(provider === "genapi" && model === "gpt-image-2" ? { quality: (value("compatible_quality", "COMPATIBLE_QUALITY") || DEFAULT_IMAGE_QUALITY) as ImageQuality } : {}),
+    ...(provider === "genapi" && model === "nano-banana-pro" ? { resolution: (value("compatible_resolution", "COMPATIBLE_RESOLUTION") || "2K") as NanoResolution } : {}),
+  };
   return {
     mode: effectiveMode,
     compatible,

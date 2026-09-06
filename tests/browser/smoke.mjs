@@ -80,6 +80,18 @@ try {
   const token = new URL(page.url()).searchParams.get('ses');
   const adminUrl = `${base}/admin${token ? `?ses=${encodeURIComponent(token)}` : ''}`;
   await page.goto(adminUrl);
+  await expect(page.locator('#global-model-choice')).toHaveValue('gpt-image-2:low');
+  await page.locator('#global-model-choice').selectOption('nano-banana:standard');
+  await page.getByRole('button', { name: 'Применить для всех', exact: true }).click();
+  await expect(page.locator('#global-generation-profile')).toContainText('Сохранено.');
+  let status = await (await page.request.get(`${base}/api/admin/genstatus`, { headers: token ? { 'x-session-token': token } : {} })).json();
+  assert.equal(status.model, 'nano-banana');
+  await page.locator('#global-model-choice').selectOption('gpt-image-2:low');
+  await page.getByRole('button', { name: 'Применить для всех', exact: true }).click();
+  await expect(page.locator('#global-generation-profile')).toContainText('Сохранено.');
+  status = await (await page.request.get(`${base}/api/admin/genstatus`, { headers: token ? { 'x-session-token': token } : {} })).json();
+  assert.equal(status.model, 'gpt-image-2');
+  assert.equal(requests.length, 0, 'Applying a profile must not generate an image');
   await expect(page.locator('#lab-model')).toHaveValue('gpt-image-2');
   await expect(page.locator('#lab-variant')).toHaveValue('gpt-image-2:medium');
   await expect(page.locator('#lab-variant option')).toHaveCount(3);

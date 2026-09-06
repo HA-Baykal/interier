@@ -7,10 +7,7 @@ import { authHeaders } from "@/lib/client-auth";
 import { ClientStyle, ClientUser } from "./types";
 import ImageComparison, { ImageLightbox } from "./ImageComparison";
 import { preparePhoto } from "@/lib/client-image";
-import {
-  ADMIN_TEST_IMAGE_QUALITY, DEFAULT_IMAGE_QUALITY, GPT_IMAGE_2_PRICE_ESTIMATES,
-  GPT_IMAGE_2_PRICE_DATE, GPT_IMAGE_2_PRICE_SOURCE, isImageQuality, type ImageQuality,
-} from "@/lib/generation/quality";
+import { isImageQuality, type ImageQuality } from "@/lib/generation/quality";
 
 type GenResult = {
   id: string;
@@ -65,8 +62,8 @@ function StyledImage({
   );
 }
 
-export default function Studio({ user, styles, aiConfigured, isDemo, initialUnlimited, canChooseQuality }: {
-  user: ClientUser; styles: ClientStyle[]; aiConfigured: boolean; isDemo: boolean; initialUnlimited: boolean; canChooseQuality: boolean;
+export default function Studio({ user, styles, aiConfigured, isDemo, initialUnlimited, activeProfileLabel, activeProfileEstimate }: {
+  user: ClientUser; styles: ClientStyle[]; aiConfigured: boolean; isDemo: boolean; initialUnlimited: boolean; activeProfileLabel: string; activeProfileEstimate?: number;
 }) {
   const { t, locale } = useLocale();
   const router = useRouter();
@@ -76,7 +73,6 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [styleId, setStyleId] = useState(styles[0]?.id ?? "");
-  const [quality, setQuality] = useState<ImageQuality>(canChooseQuality ? ADMIN_TEST_IMAGE_QUALITY : DEFAULT_IMAGE_QUALITY);
   const [dragOver, setDragOver] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [results, setResults] = useState<GenResult[]>([]);
@@ -95,9 +91,6 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
   }, []);
 
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
-  useEffect(() => {
-    setQuality(canChooseQuality ? ADMIN_TEST_IMAGE_QUALITY : DEFAULT_IMAGE_QUALITY);
-  }, [canChooseQuality]);
 
   async function acceptFile(f: File | null) {
     if (!f) return;
@@ -144,7 +137,6 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
       fd.append("file", file);
       fd.append("scope", scope);
       if (scope === "single") fd.append("styleId", styleId);
-      if (canChooseQuality) fd.append("quality", quality);
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: authHeaders(),
@@ -305,21 +297,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
               {trialAvailable && !unlimited && <span className="chip" style={{ color: "var(--success)" }}>🎁 {t("studio_free_left")}</span>}
             </div>
 
-            {canChooseQuality && (
-              <div className="mt">
-                <label htmlFor="generation-quality" style={{ display: "block", fontWeight: 600, marginBottom: 8 }}>{t("studio_quality_label")}</label>
-                <select id="generation-quality" className="input" style={{ width: "100%" }} value={quality}
-                  disabled={generating} onChange={(e) => { if (isImageQuality(e.target.value)) setQuality(e.target.value); }}>
-                  <option value="low">{t("studio_quality_low_price", { price: GPT_IMAGE_2_PRICE_ESTIMATES.low })}</option>
-                  <option value="medium">{t("studio_quality_medium_price", { price: GPT_IMAGE_2_PRICE_ESTIMATES.medium })}</option>
-                  <option value="high">{t("studio_quality_high_price", { price: GPT_IMAGE_2_PRICE_ESTIMATES.high })}</option>
-                </select>
-                <p className="small muted" style={{ marginTop: 8 }}>
-                  {t("studio_quality_estimate", { date: GPT_IMAGE_2_PRICE_DATE })}{" "}
-                  <a href={GPT_IMAGE_2_PRICE_SOURCE} target="_blank" rel="noopener noreferrer">{t("studio_quality_tariff")}</a>
-                </p>
-              </div>
-            )}
+            {!isDemo && aiConfigured && <p className="small muted mt">{t("global_model_current")}: <strong>{activeProfileLabel}</strong></p>}
             {user.isAdmin && !isDemo && aiConfigured && (
               <p className="small muted mt">{t("studio_provider_billing_note")}</p>
             )}
@@ -341,8 +319,8 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
                   disabled={generating || !file}
                   onClick={() => generate("all")}
                 >
-                  {generating ? t("studio_processing") : canChooseQuality
-                    ? t("studio_gen_all_estimate", { count: styles.length, price: styles.length * GPT_IMAGE_2_PRICE_ESTIMATES[quality] })
+                  {generating ? t("studio_processing") : user.isAdmin && !isDemo && activeProfileEstimate !== undefined
+                    ? t("studio_gen_all_estimate", { count: styles.length, price: styles.length * activeProfileEstimate })
                     : t(user.isAdmin && !isDemo ? "studio_gen_all_paid" : "studio_gen_all")}
                 </button>
               </div>

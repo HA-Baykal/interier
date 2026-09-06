@@ -6,6 +6,7 @@ import { useLocale } from "./locale-context";
 import { authHeaders } from "@/lib/client-auth";
 import { ClientPackage, ClientStyle } from "./types";
 import ModelLab from "./ModelLab";
+import GlobalModelSettings from "./GlobalModelSettings";
 
 type Settings = {
   generation_mode: string;
@@ -18,6 +19,9 @@ type Settings = {
   compatible_base_url: string;
   compatible_api_key: string;
   compatible_model: string;
+  compatible_quality?: string;
+  compatible_resolution?: string;
+  active_profile?: string | null;
   compatible_configured: boolean;
   compatible_key_source?: string;
 };
@@ -140,6 +144,8 @@ export default function Admin({
     <div className="container" style={{ paddingTop: 40, paddingBottom: 70 }}>
       <h1 style={{ fontSize: 30, fontWeight: 800 }}>{t("admin_title")}</h1>
 
+      <GlobalModelSettings activeProfile={form.active_profile || null} enabled={form.compatible_provider === "genapi" && form.compatible_configured}
+        onApplied={next => { setForm(next); setDiagnostics(null); router.refresh(); }} />
       <ModelLab styles={styles} enabled={settings.compatible_provider === "genapi" && settings.compatible_configured} />
 
       {/* Stats */}

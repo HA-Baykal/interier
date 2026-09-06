@@ -2,8 +2,8 @@
 export const IMAGE_QUALITIES = ["low", "medium", "high"] as const;
 export type ImageQuality = typeof IMAGE_QUALITIES[number];
 
-// Existing callers keep high quality. Only the administrator's picker starts at medium.
-export const DEFAULT_IMAGE_QUALITY: ImageQuality = "high";
+// The public site defaults to Low. Isolated administrator tests keep their own profiles.
+export const DEFAULT_IMAGE_QUALITY: ImageQuality = "low";
 export const ADMIN_TEST_IMAGE_QUALITY: ImageQuality = "medium";
 export const GPT_IMAGE_2_SIZE = "1024x1024";
 

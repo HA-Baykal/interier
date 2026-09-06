@@ -8,6 +8,7 @@
 
 import { randomBytes } from "crypto";
 import { getSettingOrEnv, setSetting } from "../config";
+import { RequestError } from "../errors";
 import { BotPlatform } from "../types";
 import { appUrl, maxConfig, platformsStatus, publicBaseUrl, telegramConfig, vkConfig } from "./config";
 
@@ -47,10 +48,19 @@ export async function setupTelegram(hostHint?: string | null): Promise<SetupResu
   const { connectTelegram } = await import("@/lib/telegram/connection");
   let url: string | undefined;
   try {
-    const conn = await connectTelegram(true);
+    // Never silently steal a webhook that belongs to another deployment: the
+    // takeover has to be confirmed in the Telegram block of the admin panel.
+    const conn = await connectTelegram(false);
     url = conn.publicOrigin ? `${conn.publicOrigin}${webhookPath("telegram")}` : undefined;
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Telegram connect failed", url };
+    const code = e instanceof RequestError ? e.code : "";
+    const message =
+      code === "telegram_webhook_in_use"
+        ? "У бота уже другой webhook. Подтвердите переключение в блоке «Telegram» на странице /admin (там же, где проверка getMe)."
+        : e instanceof Error
+        ? e.message
+        : "Telegram connect failed";
+    return { ok: false, error: message, url };
   }
   const { tgMe } = await import("./telegram");
 

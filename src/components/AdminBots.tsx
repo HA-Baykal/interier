@@ -269,6 +269,12 @@ export default function AdminBots() {
                 {p.me?.username ? `@${p.me.username.replace(/^@/, "")}` : t("admin_bots_not_connected")}
                 <br />
                 {t("admin_bots_webhook")}: <code>{p.webhook || `${data?.baseUrl || ""}${data?.webhookPaths?.[p.platform] || ""}`}</code>
+                {p.platform === "telegram" && (
+                  <>
+                    <br />
+                    {t("bots_tg_shared_webhook")}
+                  </>
+                )}
                 {p.detail && (
                   <>
                     <br />

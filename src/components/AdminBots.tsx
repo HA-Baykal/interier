@@ -60,6 +60,7 @@ const FIELDS: { group: string; icon: string; items: Field[] }[] = [
     items: [
       { key: "telegram_bot_token", label: "bots_tg_token", type: "password", placeholder: "123456:AA...", hint: "bots_tg_token_hint" },
       { key: "telegram_bot_username", label: "bots_tg_username", placeholder: "interier_design_bot" },
+      { key: "telegram_name", label: "bots_tg_name", placeholder: "Interier — дизайн интерьера", hint: "bots_tg_name_hint" },
       { key: "telegram_mini_app_url", label: "bots_tg_miniapp", placeholder: "https://…/app", hint: "bots_tg_miniapp_hint" },
       { key: "telegram_webhook_secret", label: "bots_tg_secret", type: "password", hint: "bots_secret_hint" },
       { key: "telegram_channel_id", label: "bots_tg_channel", placeholder: "@interier_design" },
@@ -230,6 +231,12 @@ export default function AdminBots() {
 
         {msg && <div className="ok" style={{ marginTop: 10 }}>{msg}</div>}
         {err && <div className="err" style={{ marginTop: 10 }}>{err}</div>}
+        {/* A debug door left open on production must be impossible to miss. */}
+        {data?.raw?.bots_simulator === "1" && (
+          <div className="err" style={{ marginTop: 10 }} role="alert">
+            ⚠️ {t("bots_simulator_on")}
+          </div>
+        )}
 
         {data && (
           <div className="row" style={{ flexWrap: "wrap", gap: 8, marginTop: 14 }}>

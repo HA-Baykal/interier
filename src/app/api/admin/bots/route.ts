@@ -18,6 +18,7 @@ const KEYS = [
   "admin_telegram_id",
   "telegram_bot_token",
   "telegram_bot_username",
+  "telegram_name",
   "telegram_mini_app_url",
   "telegram_webhook_secret",
   "telegram_channel_id",

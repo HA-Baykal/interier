@@ -123,6 +123,13 @@ export async function handleBotUpdate(inbound: BotInbound, hostHint?: string | n
       case "/new":
       case "/design":
         return designFlow(ctx);
+      // Advertised by setMyCommands: they must not fall through to
+      // «не понимаю», otherwise the bot looks half-built in the menu.
+      case "/edit":
+        return actionFlow(ctx, ACTION.ASK_INSTRUCTION);
+      case "/shop":
+      case "/items":
+        return actionFlow(ctx, ACTION.SHOW_SHOPPING);
       case "/admin":
         if (!ctx.isAdmin) return { messages: [{ text: tr(ctx.locale, "bot_not_admin") }, await menu(ctx)] };
         return { messages: [await adminMenuMessage(ctx)] };

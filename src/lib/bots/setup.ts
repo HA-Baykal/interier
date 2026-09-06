@@ -7,10 +7,11 @@
  */
 
 import { randomBytes } from "crypto";
-import { getSettingOrEnv, setSetting } from "../config";
+import { getSetting, getSettingBool, getSettingOrEnv, setSetting } from "../config";
 import { RequestError } from "../errors";
+import { t as tr } from "../i18n";
 import { BotPlatform } from "../types";
-import { appUrl, maxConfig, platformsStatus, publicBaseUrl, telegramConfig, vkConfig } from "./config";
+import { appUrl, maxConfig, platformsStatus, publicBaseUrl, telegramConfig, telegramTokenSource, vkConfig } from "./config";
 
 /**
  * One URL per platform. Telegram shares the login route on purpose: a single
@@ -35,6 +36,42 @@ async function ensureWebhookSecret(key: string): Promise<string> {
 }
 
 export type SetupResult = { ok: boolean; url?: string; error?: string; detail?: string };
+
+/** Profile fields that were pushed to Telegram (labels of applied Bot API calls). */
+export type ProfileResult = { ok: boolean; applied: string[]; errors: string[]; name: string | null; menuButtonUrl: string | null };
+
+/**
+ * Push the bot's *profile*: the name in the chat list, the «About» texts, the
+ * command list and the Mini App menu button. A user reads all of this before
+ * typing a single message, so this is what turns «бот подтверждает вход» into
+ * «здесь делают дизайн интерьера». Never touches the webhook.
+ */
+export async function applyTelegramProfile(hostHint?: string | null): Promise<ProfileResult> {
+  const cfg = await telegramConfig();
+  const app = await appUrl(hostHint);
+  if (!cfg.token) return { ok: false, applied: [], errors: ["TELEGRAM_BOT_TOKEN не задан (админка → Боты или env)"], name: null, menuButtonUrl: app };
+
+  const { tgApplyProfile } = await import("./telegram");
+  const result = await tgApplyProfile({
+    name: cfg.name,
+    description: tr("ru", "bot_profile_description"),
+    descriptionEn: tr("en", "bot_profile_description"),
+    shortDescription: tr("ru", "bot_profile_short"),
+    shortDescriptionEn: tr("en", "bot_profile_short"),
+    menuButtonText: tr("ru", "bot_profile_menu"),
+    menuButtonUrl: app,
+  });
+
+  if (!cfg.miniAppUrl) await setSetting("telegram_mini_app_url", app);
+  if (!cfg.botUsername) {
+    const { tgMe } = await import("./telegram");
+    const me = await tgMe();
+    if (me?.username) await setSetting("telegram_bot_username", me.username);
+  }
+  // Proof for the admin panel that the profile was actually pushed.
+  if (result.applied.length) await setSetting("telegram_profile_applied", String(Date.now()));
+  return { ok: result.errors.length === 0, applied: result.applied, errors: result.errors, name: cfg.name, menuButtonUrl: app };
+}
 
 export async function setupTelegram(hostHint?: string | null): Promise<SetupResult> {
   const cfg = await telegramConfig();
@@ -62,24 +99,15 @@ export async function setupTelegram(hostHint?: string | null): Promise<SetupResu
         : "Telegram connect failed";
     return { ok: false, error: message, url };
   }
-  const { tgMe } = await import("./telegram");
 
   // The bot's menu button opens our mini app — this is what makes it "an app".
-  const app = await appUrl(hostHint);
-  try {
-    const { call } = await import("./telegramApi");
-    await call(cfg.token, "setChatMenuButton", { menu_button: { type: "web_app", text: "Открыть Interier", web_view_url: app } });
-    await call(cfg.token, "setMyDescription", { description: "Дизайн интерьера по фото + где купить каждую деталь. Работает как приложение." });
-    await call(cfg.token, "setMyShortDescription", { short_description: "Дизайн комнаты по фото и ссылки на детали" });
-  } catch {
-    /* menu button is optional (older Bot API servers ignore unknown methods) */
-  }
-  if (!cfg.miniAppUrl) await setSetting("telegram_mini_app_url", app);
-  if (!cfg.botUsername) {
-    const me = await tgMe();
-    if (me?.username) await setSetting("telegram_bot_username", me.username);
-  }
-  return { ok: true, url, detail: `@${(await telegramConfig()).botUsername || "?"}` };
+  const profile = await applyTelegramProfile(hostHint);
+  if (!profile.ok) console.error("[bots] telegram profile:", profile.errors.join("; "));
+  return {
+    ok: true,
+    url,
+    detail: `@${(await telegramConfig()).botUsername || "?"}${profile.applied.length ? ` · профиль: ${profile.applied.join(", ")}` : ""}`,
+  };
 }
 
 export async function setupVk(hostHint?: string | null): Promise<SetupResult> {
@@ -165,5 +193,62 @@ export async function botsStatus(hostHint?: string | null) {
           ? maxSub.error || null
           : null,
     })),
+  };
+}
+
+/**
+ * Which setting produced the public address of this deployment. A webhook that
+ * points to a Preview almost always comes from `VERCEL_BRANCH_URL`, which is
+ * different for every deployment — the admin panel says so explicitly.
+ */
+function originSource(): string | null {
+  if (process.env.AUTH_PUBLIC_URL) return "AUTH_PUBLIC_URL";
+  if (process.env.PUBLIC_BASE_URL) return "PUBLIC_BASE_URL";
+  if (process.env.VERCEL_BRANCH_URL) return "VERCEL_BRANCH_URL";
+  return null;
+}
+
+/** The webhook URL this deployment *would* register, plus its origin source. */
+export async function telegramWebhookExpectation(hostHint?: string | null): Promise<{ expectedUrl: string | null; originSource: string | null }> {
+  try {
+    // The login transport owns the webhook and knows the canonical address
+    // (AUTH_PUBLIC_URL → PUBLIC_BASE_URL → VERCEL_BRANCH_URL).
+    const { telegramConfig: loginConfig } = await import("@/lib/telegram/config");
+    const cfg = loginConfig();
+    if (cfg.webhookUrl) return { expectedUrl: cfg.webhookUrl, originSource: originSource() };
+  } catch {
+    /* no token in the environment: fall back to the bots-side base URL */
+  }
+  const configured = await getSettingOrEnv("public_base_url", "PUBLIC_BASE_URL");
+  const base = await publicBaseUrl(hostHint);
+  return {
+    expectedUrl: `${base}${webhookPath("telegram")}`,
+    originSource: configured ? "PUBLIC_BASE_URL" : "REQUEST_HOST",
+  };
+}
+
+/**
+ * Everything needed to explain *why* the bot answers the way it does: is the
+ * application half turned on at all, where does the token come from, is the
+ * simulator (a debug door) left open on production.
+ */
+export async function botAppDiagnostics() {
+  const [simulator, inline, enabled, profileApplied, tokenSource] = await Promise.all([
+    getSetting("bots_simulator"),
+    getSettingBool("bots_inline_generation", false),
+    getSettingBool("bots_enabled", true),
+    getSetting("telegram_profile_applied"),
+    telegramTokenSource(),
+  ]);
+  const tg = await telegramConfig();
+  return {
+    botsEnabled: enabled,
+    /** The app half of the bot answers only when both the switch and a token are there. */
+    appEnabled: tg.enabled,
+    simulator: (simulator || "0") === "1",
+    inlineGeneration: inline,
+    tokenSource: tokenSource?.source || null,
+    name: tg.name,
+    profileAppliedAt: profileApplied ? Number(profileApplied) : null,
   };
 }

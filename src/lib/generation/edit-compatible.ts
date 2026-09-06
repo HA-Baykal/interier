@@ -15,7 +15,7 @@
 
 import { providerHttpError, providerErrorDetail } from "../errors";
 import { validateCompatibleConfig, type CompatibleConfig } from "./settings";
-import { DEFAULT_IMAGE_QUALITY, GPT_IMAGE_2_SIZE } from "./quality";
+import { buildGenApiImagePayload } from "./genapi-payload";
 export { getCompatibleConfig } from "./settings";
 export type { CompatibleConfig, CompatibleProvider } from "./settings";
 
@@ -84,14 +84,7 @@ async function genApiRequest(
 
   // Polling needs no callback; omit the unused optional URL instead of sending null.
   // Model contract: https://gen-api.ru/model/gpt-image-2/api
-  const payload = {
-    prompt,
-    image_urls: [imageUrl],
-    quality: cfg.quality ?? DEFAULT_IMAGE_QUALITY,
-    image_size: GPT_IMAGE_2_SIZE,
-    num_images: 1,
-    output_format: "png",
-  };
+  const payload = buildGenApiImagePayload(cfg, imageUrl, prompt, mime);
 
   let startRes: Response;
   try {

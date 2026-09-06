@@ -26,12 +26,13 @@ beforeEach(async () => {
   });
 });
 after(() => cleanup());
-function request(scope = "single", quality?: string) {
+function request(scope = "single", quality?: string, testProfile?: string) {
   const body = new FormData();
   body.set("file", new File([PNG], "room.png", { type: "image/png" }));
   body.set("styleId", "style_modern");
   body.set("scope", scope);
   if (quality !== undefined) body.set("quality", quality);
+  if (testProfile !== undefined) body.set("testProfile", testProfile);
   return new NextRequest("https://app.example.test/api/generate", { method: "POST", headers: { "x-session-token": "test-session" }, body });
 }
 
@@ -234,7 +235,7 @@ test("empty and unknown quality values are rejected, not silently upgraded to hi
   await seed.setSetting("compatible_api_key", "sk_quality_test");
   let calls = 0;
   t.mock.method(globalThis, "fetch", async () => { calls++; throw new Error("Must not call a paid provider"); });
-  for (const quality of ["", "low", "HIGH", "ultra", "null"]) {
+  for (const quality of ["", "invalid", "HIGH", "ultra", "null"]) {
     const res = await generate.POST(request("single", quality));
     assert.equal(res.status, 400);
     assert.equal((await res.json()).error, "bad_request");
@@ -285,4 +286,82 @@ test("an explicit high choice is honored and a provider refusal never retries at
   assert.equal(body.generations[0].quality, "high");
   assert.equal(body.generations[0].status, "failed");
   assert.equal(calls, 1);
+});
+
+
+test("admin model tests use Nano's own payload, record the estimate, and leave the public demo/settings unchanged", async (t) => {
+  await seed.setSetting("compatible_api_key", "sk_private_model_lab");
+  await seed.setSetting("generation_mode", "demo");
+  await seed.setSetting("generation_mode_explicit", "1");
+  const before = JSON.stringify((await store.db()).settings);
+  let starts = 0;
+  t.mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+    if (init?.method === "POST") {
+      starts++;
+      assert.equal(url, "https://api.gen-api.ru/api/v1/networks/nano-banana");
+      const payload = JSON.parse(String(init.body));
+      assert.equal(payload.num_images, 1);
+      assert.equal(payload.translate_input, false);
+      assert.equal(payload.aspect_ratio, "default");
+      for (const key of ["quality", "image_size", "resolution", "callback_url"]) assert.equal(Object.hasOwn(payload, key), false);
+      return Response.json({ request_id: 900 });
+    }
+    if (url.includes("/request/get/")) return Response.json({ status: "success", result: ["https://result.example.test/nano.png"] });
+    return new Response(new Uint8Array(PNG));
+  });
+  const res = await generate.POST(request("single", undefined, "nano-banana:standard"));
+  const data = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(data.isDemo, false);
+  const item = data.generations[0];
+  assert.equal(item.provider, "nano-banana");
+  assert.equal(item.testProfile, "nano-banana:standard");
+  assert.equal(item.quality, undefined);
+  assert.equal(item.estimatedCostRub, 9.75);
+  assert.equal(item.status, "done");
+  assert.ok(item.durationMs >= 0);
+  assert.equal(starts, 1);
+  assert.ok(!JSON.stringify(data).includes("sk_private_model_lab"));
+  assert.equal(JSON.stringify((await store.db()).settings), before);
+  assert.equal((await store.db()).generations[0].testProfile, item.testProfile);
+  const normal = await (await generate.POST(request())).json();
+  assert.equal(normal.isDemo, true);
+  assert.equal(starts, 1);
+});
+
+test("ordinary users cannot invoke an admin test, even with unlimited testing enabled", async (t) => {
+  await seed.setSetting("compatible_api_key", "sk_model_lab");
+  await store.mutate(d => { d.users[0].isAdmin = false; });
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => { calls++; throw new Error("Must not call provider"); });
+  const res = await generate.POST(request("single", undefined, "gpt-image-2:low"));
+  assert.equal(res.status, 403);
+  assert.equal((await res.json()).error, "test_profile_forbidden");
+  assert.equal(calls, 0);
+  assert.equal((await store.db()).generations.length, 0);
+});
+
+test("unknown, bulk and conflicting model tests fail before a paid request", async (t) => {
+  await seed.setSetting("compatible_api_key", "sk_model_lab");
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => { calls++; throw new Error("Must not call provider"); });
+  for (const req of [request("single", undefined, "unknown"), request("all", undefined, "gpt-image-2:low"), request("single", "high", "nano-banana:standard")]) {
+    assert.equal((await generate.POST(req)).status, 400);
+  }
+  assert.equal(calls, 0);
+  assert.equal((await store.db()).generations.length, 0);
+});
+
+test("a direct Nano/WebP request is rejected before upload, reservation or provider charging", async (t) => {
+  await seed.setSetting("compatible_api_key", "sk_model_lab");
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => { calls++; throw new Error("Must not call provider"); });
+  const body = new FormData();
+  body.set("file", new File([Buffer.from("RIFF0000WEBP")], "image.webp", { type: "image/webp" }));
+  body.set("styleId", "style_modern"); body.set("scope", "single"); body.set("testProfile", "nano-banana:standard");
+  const res = await generate.POST(new NextRequest("https://app.example.test/api/generate", { method: "POST", headers: { "x-session-token": "test-session" }, body }));
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).error, "model_image_type");
+  assert.equal(calls, 0);
+  assert.equal((await store.db()).generations.length, 0);
 });

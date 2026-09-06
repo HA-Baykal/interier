@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import { useLocale } from "./locale-context";
 import { authHeaders } from "@/lib/client-auth";
 import { ClientStyle, ClientUser } from "./types";
+import ImageComparison, { ImageLightbox } from "./ImageComparison";
+import { preparePhoto } from "@/lib/client-image";
 import {
   ADMIN_TEST_IMAGE_QUALITY, DEFAULT_IMAGE_QUALITY, GPT_IMAGE_2_PRICE_ESTIMATES,
   GPT_IMAGE_2_PRICE_DATE, GPT_IMAGE_2_PRICE_SOURCE, isImageQuality, type ImageQuality,
@@ -63,53 +65,6 @@ function StyledImage({
   );
 }
 
-// Downscale/compress an uploaded photo on the client so it fits within
-// serverless request-body limits (Vercel ~4.5MB) and reaches the API reliably.
-const MAX_DIM = 2048;
-const TARGET_BYTES = 2.8 * 1024 * 1024;
-
-function fileToImage(file: File): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
-    img.src = url;
-  });
-}
-
-function canvasToBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob | null> {
-  return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
-}
-
-async function downscaleImage(file: File): Promise<File | null> {
-  try {
-    const img = await fileToImage(file);
-    const scale = Math.min(1, MAX_DIM / Math.max(img.naturalWidth, img.naturalHeight));
-    const w = Math.max(1, Math.round(img.naturalWidth * scale));
-    const h = Math.max(1, Math.round(img.naturalHeight * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) { URL.revokeObjectURL(img.src); return null; }
-    ctx.drawImage(img, 0, 0, w, h);
-    URL.revokeObjectURL(img.src);
-    const baseName = (file.name.replace(/\.[^.]+$/, "") || "room") + ".jpg";
-    for (const q of [0.9, 0.8, 0.7, 0.6]) {
-      const blob = await canvasToBlob(canvas, q);
-      if (blob && blob.size <= TARGET_BYTES) {
-        return new File([blob], baseName, { type: "image/jpeg" });
-      }
-    }
-    const blob = await canvasToBlob(canvas, 0.5);
-    if (blob && blob.size <= TARGET_BYTES) return new File([blob], baseName, { type: "image/jpeg" });
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 export default function Studio({ user, styles, aiConfigured, isDemo, initialUnlimited, canChooseQuality }: {
   user: ClientUser; styles: ClientStyle[]; aiConfigured: boolean; isDemo: boolean; initialUnlimited: boolean; canChooseQuality: boolean;
 }) {
@@ -127,12 +82,13 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
   const [results, setResults] = useState<GenResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<any[]>([]);
+  const [historyView, setHistoryView] = useState<{ before: string; after: string; title: string } | null>(null);
   const [unlimited, setUnlimited] = useState(initialUnlimited);
   const [compare, setCompare] = useState(true);
   const [pubIds, setPubIds] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    fetch("/api/generations", { headers: authHeaders() })
+    fetch("/api/generations", { headers: authHeaders(), cache: "no-store" })
       .then((r) => r.json())
       .then((d) => setHistory(d.generations || []))
       .catch(() => {});
@@ -158,7 +114,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
       // Downscale/compress so uploads fit within serverless body limits (Vercel
       // ~4.5MB) and reach the API reliably. Interior photos don't need PNG or
       // full resolution: a ~2048px JPEG at good quality is more than enough.
-      const processed = await downscaleImage(f);
+      const processed = await preparePhoto(f, true);
       if (!processed) {
         setError(t("studio_upload_hint"));
         return;
@@ -354,6 +310,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
                 <label htmlFor="generation-quality" style={{ display: "block", fontWeight: 600, marginBottom: 8 }}>{t("studio_quality_label")}</label>
                 <select id="generation-quality" className="input" style={{ width: "100%" }} value={quality}
                   disabled={generating} onChange={(e) => { if (isImageQuality(e.target.value)) setQuality(e.target.value); }}>
+                  <option value="low">{t("studio_quality_low_price", { price: GPT_IMAGE_2_PRICE_ESTIMATES.low })}</option>
                   <option value="medium">{t("studio_quality_medium_price", { price: GPT_IMAGE_2_PRICE_ESTIMATES.medium })}</option>
                   <option value="high">{t("studio_quality_high_price", { price: GPT_IMAGE_2_PRICE_ESTIMATES.high })}</option>
                 </select>
@@ -430,9 +387,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
               {results[0].status === "failed" ? (
                 <div className="panel err" role="alert">{results[0].note || t("common_error")}</div>
               ) : isReal(results[0]) ? (
-                <div className="gen-result">
-                  <img src={results[0].resultUrl!} alt="design" style={{ width: "100%", display: "block" }} />
-                </div>
+                <ImageComparison before={results[0].originalUrl} after={results[0].resultUrl!} title={t("studio_result")} />
               ) : compare ? (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   <div>
@@ -502,7 +457,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
                         {r.status === "failed" ? (
                           <div className="panel err" role="alert">{r.note || t("common_error")}</div>
                         ) : isReal(r) ? (
-                          <img src={r.resultUrl!} alt="design" style={{ width: "100%", display: "block" }} />
+                          <ImageComparison before={r.originalUrl} after={r.resultUrl!} title={locale === "ru" ? st?.nameRu : st?.nameEn} />
                         ) : (
                           <StyledImage
                             url={r.originalUrl}
@@ -540,6 +495,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
         </div>
       </div>
 
+      {historyView && <ImageLightbox {...historyView} onClose={() => setHistoryView(null)} />}
       {/* History */}
       {history.length > 0 && (
         <div className="panel mt">
@@ -553,6 +509,9 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
                   <div className="small muted">{new Date(h.createdAt).toLocaleString(locale === "ru" ? "ru-RU" : "en-US")}</div>
                   {isImageQuality(h.quality) && <div className="small muted">{t(`studio_quality_${h.quality}`)}</div>}
                 </div>
+                {h.status === "done" && h.resultUrl && h.resultUrl !== h.originalUrl && h.provider !== "Demo" && (
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => setHistoryView({ before: h.originalUrl, after: h.resultUrl, title: locale === "ru" ? h.styleName?.ru : h.styleName?.en })}>{t("viewer_expand")}</button>
+                )}
                 <span className="chip">{h.mode === "trial" ? "🎁" : "✦"} {h.status}</span>
               </div>
             ))}

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useLocale } from "./locale-context";
 import { authHeaders } from "@/lib/client-auth";
 import { ClientPackage, ClientStyle } from "./types";
+import ModelLab from "./ModelLab";
 
 type Settings = {
   generation_mode: string;
@@ -138,6 +139,8 @@ export default function Admin({
   return (
     <div className="container" style={{ paddingTop: 40, paddingBottom: 70 }}>
       <h1 style={{ fontSize: 30, fontWeight: 800 }}>{t("admin_title")}</h1>
+
+      <ModelLab styles={styles} enabled={settings.compatible_provider === "genapi" && settings.compatible_configured} />
 
       {/* Stats */}
       <div className="admin-grid mt">

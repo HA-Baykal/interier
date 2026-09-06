@@ -73,6 +73,11 @@ export type Generation = {
   provider: string;
   /** Actual request quality for GPT Image 2; absent on legacy/other-model records. */
   quality?: ImageQuality;
+  resolution?: string;
+  testProfile?: string;
+  /** Public-tariff estimate, never reported as an actual debit. */
+  estimatedCostRub?: number;
+  durationMs?: number;
   createdAt: number;
   /** Whether the owner opted to showcase this design in the public gallery. */
   published: boolean;

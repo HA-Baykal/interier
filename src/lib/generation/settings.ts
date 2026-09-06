@@ -2,6 +2,7 @@ import { db } from "../db";
 import { cleanConnectionValue } from "../env";
 import type { Setting } from "../types";
 import { isImageQuality, supportsImageQuality, type ImageQuality } from "./quality";
+import { isGenApiModel, isNanoResolution, type NanoResolution } from "./model-catalog";
 
 export type GenerationMode = "demo" | "compatible" | "replicate";
 export type CompatibleProvider = "genapi" | "openai-compatible";
@@ -12,6 +13,7 @@ export type CompatibleConfig = {
   model: string;
   /** Per-request override, never saved by the global settings resolver. */
   quality?: ImageQuality;
+  resolution?: NanoResolution;
 };
 
 /** One resolver for the API, studio, admin form and diagnostics. */
@@ -66,7 +68,9 @@ export function validateCompatibleConfig(cfg: CompatibleConfig): void {
   }
   if (!/^[\x21-\x7e]+$/.test(cfg.apiKey)) throw new Error("Invalid API key: use the provider's API token without quotes or whitespace");
   if (!/^[a-zA-Z0-9_.\/-]+$/.test(cfg.model) || cfg.model.includes("..")) throw new Error("Invalid AI model ID");
+  if (cfg.provider === "genapi" && !isGenApiModel(cfg.model)) throw new Error("Unsupported GenAPI image model: choose a model from the tested catalog");
+  if (cfg.resolution !== undefined && (cfg.provider !== "genapi" || cfg.model !== "nano-banana-pro" || !isNanoResolution(cfg.resolution))) throw new Error("Invalid image resolution override for this model");
   if (cfg.quality !== undefined && (!isImageQuality(cfg.quality) || !supportsImageQuality("compatible", cfg.provider, cfg.model))) {
-    throw new Error("Invalid AI quality override: medium/high is supported only for GenAPI GPT Image 2");
+    throw new Error("Invalid AI quality override: low/medium/high is supported only for GenAPI GPT Image 2");
   }
 }

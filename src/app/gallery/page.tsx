@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useLocale } from "@/components/locale-context";
 import { t } from "@/lib/i18n";
+import { ImageLightbox } from "@/components/ImageComparison";
 
 type Item = {
   id: string;
@@ -76,51 +77,7 @@ export default function GalleryPage() {
         </div>
       )}
 
-      {/* Lightbox */}
-      {active && (
-        <div className="lightbox" onClick={() => setActive(null)}>
-          <div className="lightbox-inner" onClick={(e) => e.stopPropagation()}>
-            <button className="lightbox-close" onClick={() => setActive(null)}>
-              ✕
-            </button>
-            {active.originalUrl === active.resultUrl ? (
-              <div className="gen-result" style={{ maxHeight: 380, overflow: "hidden", background: "#000" }}>
-                <img src={active.resultUrl} alt="design" style={{ width: "100%", display: "block" }} />
-              </div>
-            ) : (
-              <div className="lightbox-grid">
-                <div>
-                  <div className="small muted" style={{ marginBottom: 6 }}>
-                    {t(locale, "studio_original_label")}
-                  </div>
-                  <div className="gen-result">
-                    <img src={active.originalUrl} alt="original" />
-                  </div>
-                </div>
-                <div>
-                  <div className="small muted" style={{ marginBottom: 6 }}>
-                    {t(locale, "studio_design_label")}
-                  </div>
-                  <div className="gen-result">
-                    <img src={active.resultUrl} alt="design" />
-                  </div>
-                </div>
-              </div>
-            )}
-            <div className="row" style={{ justifyContent: "space-between", marginTop: 14 }}>
-              <div>
-                <span className="chip">{nameOf(active)}</span>
-                <span className="chip" style={{ marginLeft: 6 }}>
-                  {active.provider}
-                </span>
-              </div>
-              <a className="btn btn-ghost btn-sm" href={active.resultUrl} download>
-                ⬇ {t(locale, "studio_download")}
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
+      {active && <ImageLightbox before={active.originalUrl} after={active.resultUrl} title={`${nameOf(active)} · ${active.provider}`} onClose={() => setActive(null)} />}
 
       <div style={{ textAlign: "center", marginTop: 30 }}>
         <Link href="/studio" className="btn btn-primary">

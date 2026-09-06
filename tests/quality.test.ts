@@ -22,7 +22,7 @@ test("the admin test starts at medium while existing clients keep high and the s
   assert.equal(ADMIN_TEST_IMAGE_QUALITY, "medium");
   assert.equal(DEFAULT_IMAGE_QUALITY, "high");
   assert.equal(GPT_IMAGE_2_SIZE, "1024x1024");
-  assert.deepEqual(IMAGE_QUALITIES, ["medium", "high"]);
+  assert.deepEqual(IMAGE_QUALITIES, ["low", "medium", "high"]);
 });
 
 test("the price hints are tied to GPT Image 2, not applied to demo, Replicate or another model", () => {
@@ -31,7 +31,7 @@ test("the price hints are tied to GPT Image 2, not applied to demo, Replicate or
     ["demo", "genapi", "gpt-image-2"], ["replicate", "genapi", "gpt-image-2"],
     ["compatible", "openai-compatible", "gpt-image-2"], ["compatible", "genapi", "nano-banana-pro"],
   ]) assert.equal(supportsImageQuality(mode, provider, model), false);
-  assert.deepEqual(GPT_IMAGE_2_PRICE_ESTIMATES, { medium: 15, high: 55 });
+  assert.deepEqual(GPT_IMAGE_2_PRICE_ESTIMATES, { low: 2.5, medium: 15, high: 55 });
   assert.equal(GPT_IMAGE_2_PRICE_SOURCE, "https://gen-api.ru/model/gpt-image-2");
 });
 
@@ -49,7 +49,7 @@ test("a per-request choice does not become a global setting through the resolver
 test("invalid direct-call overrides fail before contacting the paid provider", async (t) => {
   let calls = 0;
   t.mock.method(globalThis, "fetch", async () => { calls++; throw new Error("Must not be called"); });
-  for (const quality of ["", "low", "ultra", "HIGH"]) {
+  for (const quality of ["", "invalid", "ultra", "HIGH"]) {
     assert.equal(isImageQuality(quality), false);
     await assert.rejects(connector.runCompatibleEdit({ ...cfg, quality: quality as ImageQuality }, Buffer.from([]), "image/png", "test"), /Invalid AI quality/);
   }

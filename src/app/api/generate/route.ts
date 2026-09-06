@@ -10,6 +10,9 @@ import { RequestError, safeErrorMessage } from "@/lib/errors";
 import { assertDurableDatabase, assertDurableUploads } from "@/lib/storage-config";
 import type { Generation } from "@/lib/types";
 import { IMAGE_QUALITIES, DEFAULT_IMAGE_QUALITY, supportsImageQuality } from "@/lib/generation/quality";
+import { getTestProfile } from "@/lib/generation/model-catalog";
+import { generationRequestSettings } from "@/lib/generation/request-settings";
+import { assertGenApiImageType } from "@/lib/generation/genapi-payload";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +22,7 @@ const schema = z.object({
   styleId: z.string().optional(),
   scope: z.enum(["single", "all"]).default("single"),
   quality: z.enum(IMAGE_QUALITIES).optional(),
+  testProfile: z.string().min(1).max(80).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -34,6 +38,7 @@ export async function POST(req: NextRequest) {
       styleId: form?.get("styleId") || undefined, scope: form?.get("scope") || "single",
       // Missing preserves legacy high; blank/invalid must NOT silently become high.
       quality: form?.get("quality") ?? undefined,
+      testProfile: form?.get("testProfile") ?? undefined,
     });
     if (!parsed.success) throw new RequestError("bad_request", "Некорректный стиль, качество или режим генерации.");
     if (!file.size || file.size > maxOriginalBytes()) throw new RequestError("file_too_large", "Фото должно быть не больше 20 МБ.", 413);
@@ -41,21 +46,23 @@ export async function POST(req: NextRequest) {
     const mime = imageMime(buffer);
     if (!mime) throw new RequestError("not_image", "Поддерживаются только фото JPEG, PNG и WebP.");
 
-    const { scope, styleId, quality } = parsed.data;
+    const { scope, styleId, quality, testProfile } = parsed.data;
     const styles = await activeStyles();
     const targetStyles = scope === "all" ? styles : styles.filter((s) => s.id === styleId);
     if (!targetStyles.length) throw new RequestError("style_not_found", "Выбранный стиль не найден.");
     const settings = await getGenerationSettings();
     apiKey = settings.compatible.apiKey;
-    const isDemo = settings.mode === "demo";
-    if (!isDemo && !settings.aiConfigured) throw new RequestError("ai_not_configured", "Ключ ИИ не настроен. Администратору нужно сохранить API-ключ в настройках.", 503);
-    const qualitySupported = supportsImageQuality(settings.mode, settings.compatible.provider, settings.compatible.model);
-    if (quality !== undefined && !user.isAdmin) throw new RequestError("quality_forbidden", "Тестовый выбор качества доступен администратору.", 403);
-    if (quality !== undefined && !qualitySupported) throw new RequestError("quality_not_supported", "Выбор качества доступен только для GenAPI GPT Image 2. Обновите страницу.");
-    // Clone this request's settings. No mutation of the DB, environment or other requests.
-    const requestSettings = quality === undefined ? settings : { ...settings, compatible: { ...settings.compatible, quality } };
-    const generationQuality = qualitySupported ? quality ?? DEFAULT_IMAGE_QUALITY : undefined;
-    if (settings.mode === "compatible") validateCompatibleConfig(requestSettings.compatible);
+    const requestSettings = generationRequestSettings(settings, user.isAdmin, { scope, quality, testProfile });
+    const isDemo = requestSettings.mode === "demo";
+    if (!isDemo && !requestSettings.aiConfigured) throw new RequestError("ai_not_configured", "Ключ ИИ не настроен. Администратору нужно сохранить API-ключ в настройках.", 503);
+    const cfg = requestSettings.compatible;
+    const generationQuality = supportsImageQuality(requestSettings.mode, cfg.provider, cfg.model) ? cfg.quality ?? DEFAULT_IMAGE_QUALITY : undefined;
+    const resolution = requestSettings.mode === "compatible" && cfg.provider === "genapi" && cfg.model === "nano-banana-pro" ? cfg.resolution ?? "2K" : undefined;
+    const profile = testProfile ? getTestProfile(testProfile) : undefined;
+    if (requestSettings.mode === "compatible") {
+      validateCompatibleConfig(cfg);
+      if (cfg.provider === "genapi") assertGenApiImageType(cfg.model, mime);
+    }
     const unlimited = await isUnlimitedMode();
     const plans = await Promise.all(targetStyles.map(async (st) => ({ st, id: uid("gen"), plan: await planGeneration(st, requestSettings) })));
     const upload = await saveUpload(buffer, mime);
@@ -74,7 +81,7 @@ export async function POST(req: NextRequest) {
       const generations: Generation[] = plans.map(({ st, id, plan }) => ({
         id, userId: user.id, styleId: st.id, originalId: upload.id, originalUrl: upload.url,
         resultUrl: isDemo ? upload.url : null, status: isDemo ? "done" : "processing",
-        error: null, mode: consumed, provider: plan.provider, quality: generationQuality, createdAt: now(), published: false,
+        error: null, mode: consumed, provider: plan.provider, quality: generationQuality, resolution, testProfile, estimatedCostRub: profile?.estimatedRub, createdAt: now(), published: false,
       }));
       d.generations.push(...generations);
       return { generations, consumed };
@@ -83,6 +90,7 @@ export async function POST(req: NextRequest) {
     // All styles share one bounded window, rather than N sequential 180s polls.
     const payload = await Promise.all(generations.map(async (g, index) => {
       const { st, plan } = plans[index];
+      const startedAt = Date.now();
       let resultUrl = isDemo ? upload.url : null;
       let status: Generation["status"] = "done";
       let provider = plan.provider;
@@ -103,7 +111,7 @@ export async function POST(req: NextRequest) {
       }
       return {
         id: g.id, styleId: st.id, styleSlug: st.slug, originalUrl: upload.url,
-        resultUrl, status, provider, quality: g.quality, mode: consumed, demoConfig: plan.demoConfig,
+        resultUrl, status, provider, quality: g.quality, resolution: g.resolution, testProfile: g.testProfile, estimatedCostRub: g.estimatedCostRub, durationMs: Math.max(0, Date.now() - startedAt), mode: consumed, demoConfig: plan.demoConfig,
         note, error, consumed, published: false,
       };
     }));
@@ -111,7 +119,7 @@ export async function POST(req: NextRequest) {
     await mutate((d) => {
       for (const item of payload) {
         const record = d.generations.find((g) => g.id === item.id);
-        if (record) Object.assign(record, { status: item.status, resultUrl: item.resultUrl, provider: item.provider, error: item.error });
+        if (record) Object.assign(record, { status: item.status, resultUrl: item.resultUrl, provider: item.provider, error: item.error, durationMs: item.durationMs });
       }
       // A failed request must not burn the user's free trial / internal credit.
       if (payload.every((p) => p.status === "failed")) {

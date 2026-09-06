@@ -31,11 +31,15 @@ export async function GET(req: NextRequest) {
         error: g.error,
         provider: g.provider,
         quality: isImageQuality(g.quality) ? g.quality : undefined,
+        resolution: g.resolution,
+        testProfile: g.testProfile,
+        estimatedCostRub: g.estimatedCostRub,
+        durationMs: g.durationMs,
         mode: g.mode,
         published: !!g.published,
         createdAt: g.createdAt,
       };
     });
 
-  return NextResponse.json({ generations: list });
+  return NextResponse.json({ generations: list }, { headers: { "Cache-Control": "private, no-store" } });
 }

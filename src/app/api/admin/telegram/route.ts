@@ -5,11 +5,18 @@ import { assertSameOrigin } from "@/lib/request-origin";
 import { RequestError } from "@/lib/errors";
 import { connectTelegram, telegramPublicStatus } from "@/lib/telegram/connection";
 import { authFailure, privateHeaders } from "@/lib/auth-response";
+import { inspectTelegramBot } from "@/lib/telegram/bot-identity";
+import { telegramConfig } from "@/lib/telegram/config";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 export async function GET(req: NextRequest) {
-  try { await requireAdmin(req); return NextResponse.json(await telegramPublicStatus(), { headers: privateHeaders }); }
+  try {
+    await requireAdmin(req);
+    const status = await telegramPublicStatus();
+    const identity = req.nextUrl.searchParams.get("probe") === "1" && status.configured ? await inspectTelegramBot(telegramConfig()) : undefined;
+    return NextResponse.json({ ...status, ...(identity ? { identity } : {}) }, { headers: privateHeaders });
+  }
   catch (e) { return authFailure(e); }
 }
 export async function POST(req: NextRequest) {

@@ -2,6 +2,7 @@ import { getSetting, setSetting } from "../config";
 import { RequestError } from "../errors";
 import { telegramConfig, telegramScopeHash, type TelegramConfig } from "./config";
 import { telegramCall } from "./api";
+import { inspectTelegramBot } from "./bot-identity";
 
 const CONNECTION_KEY = "telegram_auth_connection";
 export async function telegramConnected(cfg: TelegramConfig): Promise<boolean> {
@@ -24,8 +25,11 @@ export async function telegramPublicStatus() {
 export async function connectTelegram(takeOver: boolean) {
   const cfg = telegramConfig();
   if (!cfg.webhookUrl) throw new RequestError("telegram_public_url_missing", "Нужен постоянный AUTH_PUBLIC_URL или системный VERCEL_BRANCH_URL.", 503);
-  const me = await telegramCall<{ id: number; username?: string; is_bot: boolean }>(cfg, "getMe");
-  if (!me.is_bot || String(me.id) !== cfg.botId || me.username?.toLowerCase() !== cfg.username.toLowerCase()) throw new RequestError("telegram_wrong_bot", `Этот токен не принадлежит @${cfg.username}. Проверьте настройки Vercel.`);
+  const identity = await inspectTelegramBot(cfg);
+  if (!identity.matches) {
+    throw new RequestError(identity.code === "username_mismatch" || identity.code === "id_mismatch" ? "telegram_wrong_bot" : "telegram_identity_unverified", identity.message,
+      identity.code === "username_mismatch" || identity.code === "id_mismatch" ? 400 : 503);
+  }
   const current = await telegramCall<{ url?: string }>(cfg, "getWebhookInfo");
   if (current.url) {
     let same = false;

@@ -96,7 +96,7 @@ test("a different bot or an existing foreign webhook cannot be replaced accident
 
 test("a token for a different username is rejected before changing Telegram settings", async t => {
   const fixture = wire(t, { wrongBot: true });
-  await assert.rejects(connection.connectTelegram(false), /не принадлежит/);
+  await assert.rejects(connection.connectTelegram(false), /Telegram сообщил бота @wrong_bot/);
   assert.ok(!fixture.calls.some(call => call.method === "setWebhook"));
 });
 

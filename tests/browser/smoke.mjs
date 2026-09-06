@@ -72,6 +72,18 @@ const isBlue = rgb => rgb[2] > 170 && rgb[0] < 90;
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 1000 }, deviceScaleFactor: 1 });
   const page = await context.newPage(); await wire(page);
+  const identityChecks = [];
+  await page.route('**/api/admin/telegram*', route => {
+    const request = route.request();
+    const probe = new URL(request.url()).searchParams.get('probe') === '1';
+    identityChecks.push({ method: request.method(), probe });
+    if (request.method() !== 'GET') return route.abort();
+    return route.fulfill({ json: {
+      configured: true, connected: false, username: 'interier_home_bot', publicOrigin: null, bypassConfigured: false,
+      ...(probe ? { identity: { matches: false, code: 'username_mismatch', expectedUsername: 'interier_home_bot', actualUsername: 'another_home_bot', botIdMatches: true, usernameMatches: false,
+        message: 'Telegram сообщил бота @another_home_bot, а сайт настроен на @interier_home_bot. Webhook не изменён.' } } : {}),
+    } });
+  });
   await page.goto(`${base}/login`);
   await page.locator('input[type="email"]').fill('model-lab-smoke@example.test');
   await page.locator('input[type="password"]').fill('local-model-lab-only-2026');
@@ -101,6 +113,12 @@ try {
   await expect(localSecret).toHaveCount(0);
   assert.deepEqual(mutations, [], 'Creating/copying a local secret must not submit data or change settings');
   page.off('request', trackMutation);
+  assert.ok(!identityChecks.some(check => check.probe), 'Opening settings must not run a remote identity probe');
+  await page.getByRole('button', { name: 'Проверить бота по токену', exact: true }).click();
+  await expect(page.locator('#telegram-identity-report')).toContainText('@another_home_bot');
+  await expect(page.locator('#telegram-identity-report')).toContainText('@interier_home_bot');
+  assert.equal(identityChecks.filter(check => check.probe).length, 1);
+  assert.ok(identityChecks.every(check => check.method === 'GET'), 'Identity inspection must not change webhook settings');
   await expect(page.locator('#global-model-choice')).toHaveValue('gpt-image-2:low');
   await page.locator('#global-model-choice').selectOption('nano-banana:standard');
   await page.getByRole('button', { name: 'Применить для всех', exact: true }).click();

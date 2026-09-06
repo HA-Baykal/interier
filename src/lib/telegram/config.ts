@@ -30,6 +30,6 @@ export function telegramConfig() {
   const webhook = publicOrigin ? new URL("/api/auth/telegram/webhook", publicOrigin) : null;
   if (webhook && bypass) webhook.searchParams.set("x-vercel-protection-bypass", bypass);
   const fingerprint = createHmac("sha256", token).update(`${username.toLowerCase()}:${webhook?.href || ""}:${redisDbKey()}`).digest("hex");
-  return { token, username, botId: token.split(":")[0], publicOrigin, bypass, webhookSecret, webhookUrl: webhook?.href || null, fingerprint };
+  return { token, username, botId: BigInt(token.split(":")[0]).toString(), publicOrigin, bypass, webhookSecret, webhookUrl: webhook?.href || null, fingerprint };
 }
 export type TelegramConfig = ReturnType<typeof telegramConfig>;

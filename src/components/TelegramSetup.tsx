@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { authHeaders } from "@/lib/client-auth";
 import { useLocale } from "./locale-context";
+import AutomationSecretHelper from "./AutomationSecretHelper";
 
 type Status = { configured: boolean; connected: boolean; username: string; publicOrigin: string | null; bypassConfigured: boolean; message?: string };
 export default function TelegramSetup() {
@@ -44,6 +45,7 @@ export default function TelegramSetup() {
       {status.publicOrigin && <p className="small muted mt">{t("tg_server_address")}: {status.publicOrigin}</p>}
       {!status.configured && <p className="small err">{status.message}</p>}
       {status.configured && !status.bypassConfigured && <p className="small muted mt">{t("tg_protection_help")}</p>}
+      {!status.bypassConfigured && <AutomationSecretHelper />}
       <label className="small muted mt" style={{ display: "block" }}><input type="checkbox" checked={takeOver} onChange={event => setTakeOver(event.target.checked)} disabled={busy} /> {t("tg_takeover")}</label>
       <div className="row mt" style={{ flexWrap: "wrap" }}>
         <button className="btn btn-primary" type="button" onClick={connect} disabled={busy || !status.configured || !status.publicOrigin}>{busy ? t("common_loading") : t("tg_connect")}</button>

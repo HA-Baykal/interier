@@ -1,39 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { requireUser, AuthError } from "@/lib/auth";
-import { grantTelegramBonus } from "@/lib/billing";
+import { assertIdentityVerified } from "@/lib/identity";
+import { assertSameOrigin } from "@/lib/request-origin";
+import { RequestError, safeErrorMessage } from "@/lib/errors";
 
-const schema = z.object({
-  channel: z.enum(["telegram", "vk"]),
-  externalId: z.string().optional(),
-  username: z.string().optional(),
-});
-
+/** A posted username/ID is not proof of subscribing. Fail closed until real platform checks are connected. */
 export async function POST(req: NextRequest) {
-  let user;
   try {
-    user = await requireUser(req);
+    assertSameOrigin(req);
+    const user = await requireUser(req);
+    assertIdentityVerified(user);
+    return NextResponse.json({ error: "reward_verification_not_configured", message: "Проверка подписки через API платформы ещё не подключена. Бонус за введённое имя или ID не начисляется." }, { status: 503 });
   } catch (e) {
-    if (e instanceof AuthError) return NextResponse.json({ error: e.code }, { status: 401 });
-    throw e;
+    return NextResponse.json({ error: e instanceof AuthError ? e.code : e instanceof RequestError ? e.code : "reward_unavailable", message: e instanceof AuthError ? "Войдите в аккаунт." : safeErrorMessage(e) },
+      { status: e instanceof AuthError ? 401 : e instanceof RequestError ? e.status : 503 });
   }
-
-  const body = await req.json().catch(() => null);
-  const parsed = schema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: "bad_request" }, { status: 400 });
-
-  // Demo mode: no platform token, so verification is simulated.
-  // When a real token is configured this would call Telegram/VK API.
-  const result = await grantTelegramBonus(
-    user,
-    parsed.data.channel,
-    parsed.data.externalId ? Number(parsed.data.externalId) : null,
-    parsed.data.username ?? null
-  );
-
-  return NextResponse.json({
-    ok: result.granted,
-    already: result.already,
-    credits: result.credits,
-  });
 }

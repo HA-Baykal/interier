@@ -2,47 +2,22 @@
  * Image-edit connector supporting:
  *   1) GenAPI native REST (provider "genapi") — gen-api.ru
  *      POST https://api.gen-api.ru/api/v1/networks/{model_id}
- *      body: { prompt, image_urls: [dataUri], quality, image_size, num_images, output_format }
+ *      body: { prompt, image_urls: [publicPhotoUrl], quality, image_size, num_images, output_format }
  *      result via polling GET /api/v1/request/get/{request_id}
  *
  *   2) OpenAI-compatible image edit (provider "openai-compatible") — provod.ai etc.
  *      POST {base}/v1/images/edits  (multipart)
  *
- * Both are used from Russia with ruble payment. We pass the uploaded room photo
- * as a data URI so no public hosting / localhost reachability is needed.
+ * Both are used from Russia with ruble payment. GenAPI receives the existing
+ * public Blob URL on Vercel; local callers retain the legacy inline photo input.
+ * OpenAI-compatible providers still receive a multipart file.
  */
 
-import { getSetting } from "../config";
-
-export type CompatibleProvider = "genapi" | "openai-compatible";
-
-export type CompatibleConfig = {
-  provider: CompatibleProvider;
-  /** For genapi: "https://api.gen-api.ru". For openai-compatible: "https://api.provod.ai/v1". */
-  baseUrl: string;
-  apiKey: string;
-  model: string;
-};
-
-export async function getCompatibleConfig(): Promise<CompatibleConfig | null> {
-  const provider: CompatibleProvider =
-    ((await getSetting("compatible_provider")) as CompatibleProvider) || "genapi";
-  const defaultBase = provider === "openai-compatible" ? "https://api.provod.ai/v1" : "https://api.gen-api.ru";
-  const baseUrl =
-    (await getSetting("compatible_base_url")) || process.env.COMPATIBLE_BASE_URL || defaultBase;
-  const apiKey =
-    (await getSetting("compatible_api_key")) || process.env.COMPATIBLE_API_KEY || "";
-  let model =
-    (await getSetting("compatible_model")) || process.env.COMPATIBLE_MODEL || "gpt-image-2";
-  // GenAPI uses the bare model id (e.g. "gpt-image-2", "nano-banana-pro").
-  // Some OpenAI-style names carry a provider prefix ("google/nano-banana",
-  // "openai/gpt-image-2") — strip it for the native GenAPI endpoint.
-  if (provider === "genapi" && model.includes("/")) {
-    model = model.slice(model.lastIndexOf("/") + 1);
-  }
-  if (!baseUrl || !apiKey || !model) return null;
-  return { provider, baseUrl: baseUrl.replace(/\/+$/, ""), apiKey, model };
-}
+import { providerHttpError, providerErrorDetail } from "../errors";
+import { validateCompatibleConfig, type CompatibleConfig } from "./settings";
+import { buildGenApiImagePayload } from "./genapi-payload";
+export { getCompatibleConfig } from "./settings";
+export type { CompatibleConfig, CompatibleProvider } from "./settings";
 
 /**
  * Strong structure-preserving interior prompt. Structural elements (walls,
@@ -83,24 +58,33 @@ function toDataUri(buffer: Buffer, mime: string): string {
   return `data:${mime};base64,${buffer.toString("base64")}`;
 }
 
+/** Use the existing Blob URL, not a URL built from the protected Preview host. */
+function genApiPhotoInput(buffer: Buffer, mime: string, originalUrl?: string): string {
+  if (!originalUrl || originalUrl.startsWith("/api/uploads/") || originalUrl.startsWith("data:")) {
+    return toDataUri(buffer, mime);
+  }
+  let url: URL;
+  try { url = new URL(originalUrl); } catch { throw new Error("Invalid original photo URL"); }
+  if (url.protocol !== "https:" || url.username || url.password || url.hash) {
+    throw new Error("Original photo must have a public HTTPS URL without embedded credentials");
+  }
+  return url.href;
+}
+
 async function genApiRequest(
   cfg: CompatibleConfig,
   imageBuffer: Buffer,
   mime: string,
-  prompt: string
+  prompt: string,
+  originalUrl?: string
 ): Promise<{ outputUrl: string; provider: string }> {
-  const endpoint = `${cfg.baseUrl}/api/v1/networks/${cfg.model}`;
-  const imageUrl = toDataUri(imageBuffer, mime);
+  const endpoint = `${cfg.baseUrl}/api/v1/networks/${encodeURIComponent(cfg.model)}`;
+  const deadline = Date.now() + 210_000;
+  const imageUrl = genApiPhotoInput(imageBuffer, mime, originalUrl);
 
-  const payload = {
-    callback_url: null,
-    prompt,
-    image_urls: [imageUrl],
-    quality: "high",
-    image_size: "1024x1024",
-    num_images: 1,
-    output_format: "png",
-  };
+  // Polling needs no callback; omit the unused optional URL instead of sending null.
+  // Model contract: https://gen-api.ru/model/gpt-image-2/api
+  const payload = buildGenApiImagePayload(cfg, imageUrl, prompt, mime);
 
   let startRes: Response;
   try {
@@ -112,35 +96,39 @@ async function genApiRequest(
         Accept: "application/json",
       },
       body: JSON.stringify(payload),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(30_000),
     });
   } catch (e) {
     throw wrapFetchError(e, "GenAPI start");
   }
 
   if (!startRes.ok) {
-    const text = await startRes.text().catch(() => "");
-    throw new Error(`GenAPI start failed (${startRes.status}): ${text.slice(0, 300)}`);
+    throw await providerHttpError(startRes, "GenAPI start", cfg.apiKey);
   }
 
   const startData = await startRes.json();
-  const requestId = startData.request_id;
-  if (!requestId) throw new Error("GenAPI did not return request_id");
+  const requestId = startData?.request_id;
+  if (!requestId) throw new Error(`GenAPI start: ${providerErrorDetail(startData, [cfg.apiKey]) || "API did not return request_id"}`);
 
   // Poll for the result.
-  const deadline = Date.now() + 180_000;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 2000));
+    if (Date.now() >= deadline) break;
     let pollRes: Response;
     try {
-      pollRes = await fetch(`${cfg.baseUrl}/api/v1/request/get/${requestId}`, {
+      pollRes = await fetch(`${cfg.baseUrl}/api/v1/request/get/${encodeURIComponent(String(requestId))}`, {
         headers: { Authorization: `Bearer ${cfg.apiKey}`, Accept: "application/json" },
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(Math.min(15_000, deadline - Date.now())),
       });
     } catch (e) {
       throw wrapFetchError(e, "GenAPI poll");
     }
     if (!pollRes.ok) {
-      const t = await pollRes.text().catch(() => "");
-      throw new Error(`GenAPI poll failed (${pollRes.status}): ${t.slice(0, 200)}`);
+      throw await providerHttpError(pollRes, "GenAPI poll", cfg.apiKey);
     }
     const d = await pollRes.json();
     if (d.status === "success") {
@@ -150,8 +138,7 @@ async function genApiRequest(
       return { outputUrl: url, provider: cfg.model };
     }
     if (d.status === "error") {
-      const msg = d.error || d.full_response?.[0]?.error || "unknown error";
-      throw new Error(`GenAPI error: ${JSON.stringify(msg)}`);
+      throw new Error(`GenAPI error: ${providerErrorDetail(d, [cfg.apiKey]) || "Провайдер не передал пояснение ошибки."}`);
     }
   }
 
@@ -189,14 +176,16 @@ async function openAiCompatibleRequest(
         // no Content-Type: multipart boundary is set automatically
       },
       body: form,
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(210_000),
     });
   } catch (e) {
     throw wrapFetchError(e, "Image edit");
   }
 
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Image edit failed (${res.status}): ${text.slice(0, 300)}`);
+    throw await providerHttpError(res, "Image edit", cfg.apiKey);
   }
 
   const data = await res.json();
@@ -218,10 +207,12 @@ export async function runCompatibleEdit(
   cfg: CompatibleConfig,
   imageBuffer: Buffer,
   mime: string,
-  prompt: string
+  prompt: string,
+  originalUrl?: string
 ): Promise<CompatibleResult> {
+  validateCompatibleConfig(cfg);
   if (cfg.provider === "openai-compatible") {
     return openAiCompatibleRequest(cfg, imageBuffer, mime, prompt);
   }
-  return genApiRequest(cfg, imageBuffer, mime, prompt);
+  return genApiRequest(cfg, imageBuffer, mime, prompt, originalUrl);
 }

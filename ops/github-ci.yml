@@ -1,0 +1,66 @@
+# Шаблон автопроверки. Чтобы включить: открыть репозиторий в браузере →
+# Add file → Create new file → имя `.github/workflows/ci.yml` → вставить это
+# содержимое → Commit (через веб-интерфейс GitHub это можно, пуш workflow-файла
+# извне GitHub App блокирует).
+#
+# Дальше каждый пуш в открытый PR получает статус: типы → 155 юнит-тестов →
+# сборка → запуск собранного сервера и полный selftest цепочки. Красный статус
+# видно прямо в PR, мержить для проверки не нужно.
+name: CI
+
+# Проверка без мержа: каждый пуш в открытые PR и в рабочие ветки получает
+# собственный зелёный/красный статус, плюс прогон всей цепочки на локальном
+# сервере. Никаких секретов здесь нет и не нужно: тесты работают на фикстурах,
+# selftest — на файговом хранилище в демо-режиме.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: ["main"]
+
+# Ветка с открытым PR уже проверяется событием pull_request, поэтому дублей нет;
+# новый пуш отменяет устаревший прогон, чтобы не съедать минуты тарифа.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: типы → тесты → сборка → вся цепочка
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: установка зависимостей
+        run: npm ci --no-audit --no-fund
+
+      - name: типы
+        run: npm run typecheck
+
+      - name: юнит-тесты (без сети и без реальных ботов)
+        run: npm test
+
+      - name: сборка
+        run: npm run build
+
+      - name: вся цепочка на собранном сервере (генерация → детали → правка → боты → единый вебхук)
+        run: |
+          npm start > /tmp/next.log 2>&1 &
+          ready=0
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3000/api/styles > /dev/null 2>&1; then ready=1; break; fi
+            sleep 2
+          done
+          if [ "$ready" != "1" ]; then
+            echo "сервер не поднялся:"; tail -n 40 /tmp/next.log; exit 1
+          fi
+          npm run selftest -- --base http://127.0.0.1:3000 || {
+            echo "--- журнал сервера ---"; tail -n 60 /tmp/next.log; exit 1;
+          }

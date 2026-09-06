@@ -5,6 +5,10 @@ import { useEffect, useRef, useState } from "react";
 import { useLocale } from "./locale-context";
 import { authHeaders } from "@/lib/client-auth";
 import { ClientStyle, ClientUser } from "./types";
+import ImageComparison, { ImageLightbox } from "./ImageComparison";
+import DesignEditor from "./DesignEditor";
+import { preparePhoto } from "@/lib/client-image";
+import { isImageQuality, type ImageQuality } from "@/lib/generation/quality";
 
 type GenResult = {
   id: string;
@@ -14,6 +18,7 @@ type GenResult = {
   resultUrl: string | null;
   status: "processing" | "done" | "failed";
   provider: string;
+  quality?: ImageQuality;
   mode: "trial" | "credit" | "unlimited";
   demoConfig: { filter: string; tint: string; vignette: number; accent: string } | null;
   note: string | null;
@@ -58,55 +63,11 @@ function StyledImage({
   );
 }
 
-// Downscale/compress an uploaded photo on the client so it fits within
-// serverless request-body limits (Vercel ~4.5MB) and reaches the API reliably.
-const MAX_DIM = 2048;
-const TARGET_BYTES = 2.8 * 1024 * 1024;
-
-function fileToImage(file: File): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = url;
-  });
-}
-
-function canvasToBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob | null> {
-  return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
-}
-
-async function downscaleImage(file: File): Promise<File | null> {
-  try {
-    const img = await fileToImage(file);
-    const scale = Math.min(1, MAX_DIM / Math.max(img.naturalWidth, img.naturalHeight));
-    const w = Math.max(1, Math.round(img.naturalWidth * scale));
-    const h = Math.max(1, Math.round(img.naturalHeight * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-    ctx.drawImage(img, 0, 0, w, h);
-    URL.revokeObjectURL(img.src);
-    const baseName = (file.name.replace(/\.[^.]+$/, "") || "room") + ".jpg";
-    for (const q of [0.9, 0.8, 0.7, 0.6]) {
-      const blob = await canvasToBlob(canvas, q);
-      if (blob && blob.size <= TARGET_BYTES) {
-        return new File([blob], baseName, { type: "image/jpeg" });
-      }
-    }
-    const blob = await canvasToBlob(canvas, 0.5);
-    if (blob) return new File([blob], baseName, { type: "image/jpeg" });
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-export default function Studio({ user, styles }: { user: ClientUser; styles: ClientStyle[] }) {
+export default function Studio({ user, styles, aiConfigured, isDemo, initialUnlimited, activeProfileLabel, activeProfileEstimate }: {
+  user: ClientUser; styles: ClientStyle[]; aiConfigured: boolean; isDemo: boolean; initialUnlimited: boolean; activeProfileLabel: string; activeProfileEstimate?: number;
+}) {
   const { t, locale } = useLocale();
+  const verified = user.isAdmin || user.verified === true;
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const camRef = useRef<HTMLInputElement>(null);
@@ -119,16 +80,23 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
   const [results, setResults] = useState<GenResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<any[]>([]);
-  const [unlimited, setUnlimited] = useState(false);
+  const [historyView, setHistoryView] = useState<{ before: string; after: string; title: string } | null>(null);
+  const [unlimited, setUnlimited] = useState(initialUnlimited);
   const [compare, setCompare] = useState(true);
   const [pubIds, setPubIds] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    fetch("/api/generations", { headers: authHeaders() })
+  function loadHistory() {
+    return fetch("/api/generations", { headers: authHeaders(), cache: "no-store" })
       .then((r) => r.json())
       .then((d) => setHistory(d.generations || []))
       .catch(() => {});
+  }
+
+  useEffect(() => {
+    void loadHistory();
   }, []);
+
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
   async function acceptFile(f: File | null) {
     if (!f) return;
@@ -145,7 +113,7 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
       // Downscale/compress so uploads fit within serverless body limits (Vercel
       // ~4.5MB) and reach the API reliably. Interior photos don't need PNG or
       // full resolution: a ~2048px JPEG at good quality is more than enough.
-      const processed = await downscaleImage(f);
+      const processed = await preparePhoto(f, true);
       if (!processed) {
         setError(t("studio_upload_hint"));
         return;
@@ -159,6 +127,7 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
   }
 
   async function generate(scope: "single" | "all") {
+    if (!verified) { setError(t("auth_verification_required")); return; }
     if (!file) {
       setError(t("studio_upload"));
       return;
@@ -191,15 +160,19 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
             ? t("studio_no_credits")
             : data.error === "no_trial"
             ? t("studio_no_credits")
-            : t("common_error")
+            : data.message || data.error || (res.status === 413
+              ? (locale === "ru" ? "Фото слишком большое для сервера. Выберите файл поменьше." : "Photo is too large for the server.")
+              : `HTTP ${res.status}: ${t("common_error")}`)
         );
         return;
       }
       setResults(data.generations || []);
       if (typeof data.unlimited === "boolean") setUnlimited(data.unlimited);
+      fetch("/api/generations", { headers: authHeaders(), cache: "no-store" })
+        .then((r) => r.json()).then((d) => setHistory(d.generations || [])).catch(() => {});
       router.refresh();
-    } catch {
-      setError(t("common_error"));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("common_error"));
     } finally {
       setGenerating(false);
     }
@@ -242,7 +215,7 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
     <div className="container" style={{ paddingTop: 40, paddingBottom: 70 }}>
       <h1 style={{ fontSize: 30, fontWeight: 800 }}>{t("studio_title")}</h1>
       <p className="muted" style={{ marginTop: 6 }}>
-        {t("studio_demo_note")}
+        {isDemo ? t("studio_demo_note") : aiConfigured ? t("studio_ai_note") : t("studio_ai_missing")}
       </p>
 
       <div className="studio-layout mt">
@@ -325,17 +298,22 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
           </div>
 
           <div className="panel mt">
+            {!verified && <p className="err" role="status">{t("auth_verification_required")}</p>}
             <div className="row" style={{ flexWrap: "wrap", gap: 10 }}>
               <span className="chip">{creditsLabel}</span>
               {unlimited && <span className="chip" style={{ color: "var(--success)" }}>♾️ {t("studio_test_unlimited")}</span>}
               {trialAvailable && !unlimited && <span className="chip" style={{ color: "var(--success)" }}>🎁 {t("studio_free_left")}</span>}
             </div>
 
+            {!isDemo && aiConfigured && <p className="small muted mt">{t("global_model_current")}: <strong>{activeProfileLabel}</strong></p>}
+            {user.isAdmin && !isDemo && aiConfigured && (
+              <p className="small muted mt">{t("studio_provider_billing_note")}</p>
+            )}
             <div className="mt">
               <button
                 className="btn btn-primary"
                 style={{ width: "100%" }}
-                disabled={generating || !file}
+                disabled={generating || !file || !verified}
                 onClick={() => generate("single")}
               >
                 {generating ? t("studio_processing") : t("studio_gen_single")}
@@ -346,16 +324,18 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
                 <button
                   className="btn btn-ghost"
                   style={{ width: "100%" }}
-                  disabled={generating || !file}
+                  disabled={generating || !file || !verified}
                   onClick={() => generate("all")}
                 >
-                  {generating ? t("studio_processing") : t("studio_gen_all")}
+                  {generating ? t("studio_processing") : user.isAdmin && !isDemo && activeProfileEstimate !== undefined
+                    ? t("studio_gen_all_estimate", { count: styles.length, price: styles.length * activeProfileEstimate })
+                    : t(user.isAdmin && !isDemo ? "studio_gen_all_paid" : "studio_gen_all")}
                 </button>
               </div>
             )}
           </div>
 
-          {error && <div className="err" style={{ marginTop: 14 }}>{error}</div>}
+          {error && <div className="err" role="alert" style={{ marginTop: 14 }}>{error}</div>}
         </div>
 
         {/* Right: results */}
@@ -378,10 +358,10 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
             <div>
               <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
                 <h2 style={{ fontSize: 18 }}>{t("studio_result")}</h2>
-                <span className="chip">{results[0].provider}</span>
+                <span className="chip">{results[0].provider}{isImageQuality(results[0].quality) ? ` · ${t(`studio_quality_${results[0].quality}`)}` : ""}</span>
               </div>
 
-              {!isReal(results[0]) && (
+              {results[0].status === "done" && !isReal(results[0]) && (
                 <div className="row" style={{ gap: 8, marginBottom: 10 }}>
                   <button className="btn btn-ghost btn-sm" onClick={() => setCompare((c) => !c)}>
                     {compare ? t("studio_hide_compare") : t("studio_show_compare")}
@@ -390,10 +370,10 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
                 </div>
               )}
 
-              {isReal(results[0]) ? (
-                <div className="gen-result">
-                  <img src={results[0].resultUrl!} alt="design" style={{ width: "100%", display: "block" }} />
-                </div>
+              {results[0].status === "failed" ? (
+                <div className="panel err" role="alert">{results[0].note || t("common_error")}</div>
+              ) : isReal(results[0]) ? (
+                <ImageComparison before={results[0].originalUrl} after={results[0].resultUrl!} title={t("studio_result")} />
               ) : compare ? (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   <div>
@@ -424,7 +404,7 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
                   />
                 </div>
               )}
-              {results[0].note && <div className="small muted" style={{ marginTop: 8 }}>{results[0].note}</div>}
+              {results[0].status !== "failed" && results[0].note && <div className="small muted" style={{ marginTop: 8 }}>{results[0].note}</div>}
               <div className="gen-meta">
                 {isReal(results[0]) && (
                   <button
@@ -435,17 +415,44 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
                     {pubIds[results[0].id] ? t("gallery_unpublish") : t("gallery_publish")}
                   </button>
                 )}
-                <a
+                {results[0].status === "done" && <a
                   className="btn btn-ghost btn-sm"
                   href={isReal(results[0]) ? results[0].resultUrl! : results[0].originalUrl}
                   download
                 >
                   ⬇ {t("studio_download")}
-                </a>
-                <button className="btn btn-primary btn-sm" onClick={() => generate("single")} disabled={generating}>
+                </a>}
+                <button className="btn btn-primary btn-sm" onClick={() => generate("single")} disabled={generating || !verified}>
                   {t("studio_regenerate")}
                 </button>
               </div>
+
+              {/* Purchasable details + "change only that" — the same flow the
+                  messenger app uses, on the same records. */}
+              {results[0].status === "done" && isReal(results[0]) && results[0].resultUrl && (
+                <DesignEditor
+                  generationId={results[0].id}
+                  imageUrl={results[0].resultUrl!}
+                  onEdited={(g) => {
+                    setResults((prev) => [
+                      {
+                        ...prev[0],
+                        id: g.id,
+                        styleId: g.styleId,
+                        status: g.status,
+                        resultUrl: g.resultUrl,
+                        provider: g.provider,
+                        note: g.note,
+                        mode: g.mode,
+                        quality: isImageQuality(g.quality) ? g.quality : undefined,
+                        demoConfig: (g.demoConfig ?? null) as GenResult["demoConfig"],
+                      },
+                      ...prev.slice(1),
+                    ]);
+                    void loadHistory();
+                  }}
+                />
+              )}
             </div>
           ) : results.length > 1 ? (
             <div>
@@ -459,9 +466,11 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
                   return (
                     <div key={r.id}>
                       <div className="gen-result">
-                        {!isReal(r) && <span className="demo-badge">{t("studio_demo_badge")}</span>}
-                        {isReal(r) ? (
-                          <img src={r.resultUrl!} alt="design" style={{ width: "100%", display: "block" }} />
+                        {r.status === "done" && !isReal(r) && <span className="demo-badge">{t("studio_demo_badge")}</span>}
+                        {r.status === "failed" ? (
+                          <div className="panel err" role="alert">{r.note || t("common_error")}</div>
+                        ) : isReal(r) ? (
+                          <ImageComparison before={r.originalUrl} after={r.resultUrl!} title={locale === "ru" ? st?.nameRu : st?.nameEn} />
                         ) : (
                           <StyledImage
                             url={r.originalUrl}
@@ -472,6 +481,7 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
                       </div>
                       <div className="gen-meta">
                         <span style={{ fontWeight: 700 }}>{locale === "ru" ? st?.nameRu : st?.nameEn}</span>
+                        {isImageQuality(r.quality) && <span className="small muted">{t(`studio_quality_${r.quality}`)}</span>}
                         {isReal(r) && (
                           <button
                             className={"btn btn-sm " + (pubIds[r.id] ? "btn-ghost" : "")}
@@ -481,23 +491,30 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
                             {pubIds[r.id] ? t("gallery_unpublish") : t("gallery_publish")}
                           </button>
                         )}
-                        <a
+                        {r.status === "done" && <a
                           className="btn btn-ghost btn-sm"
                           href={isReal(r) ? r.resultUrl! : r.originalUrl}
                           download
                         >
                           ⬇
-                        </a>
+                        </a>}
                       </div>
                     </div>
                   );
                 })}
               </div>
+              {(() => {
+                const first = results.find((r) => r.status === "done" && isReal(r) && r.resultUrl);
+                return first ? (
+                  <DesignEditor generationId={first.id} imageUrl={first.resultUrl!} />
+                ) : null;
+              })()}
             </div>
           ) : null}
         </div>
       </div>
 
+      {historyView && <ImageLightbox {...historyView} onClose={() => setHistoryView(null)} />}
       {/* History */}
       {history.length > 0 && (
         <div className="panel mt">
@@ -507,9 +524,13 @@ export default function Studio({ user, styles }: { user: ClientUser; styles: Cli
               <div className="hist-item" key={h.id}>
                 <img src={h.originalUrl} alt="" />
                 <div className="grow">
-                  <div style={{ fontWeight: 600 }}>{locale === "ru" ? h.styleNameRu : h.styleNameEn}</div>
+                  <div style={{ fontWeight: 600 }}>{locale === "ru" ? h.styleName?.ru : h.styleName?.en}</div>
                   <div className="small muted">{new Date(h.createdAt).toLocaleString(locale === "ru" ? "ru-RU" : "en-US")}</div>
+                  {isImageQuality(h.quality) && <div className="small muted">{t(`studio_quality_${h.quality}`)}</div>}
                 </div>
+                {h.status === "done" && h.resultUrl && h.resultUrl !== h.originalUrl && h.provider !== "Demo" && (
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => setHistoryView({ before: h.originalUrl, after: h.resultUrl, title: locale === "ru" ? h.styleName?.ru : h.styleName?.en })}>{t("viewer_expand")}</button>
+                )}
                 <span className="chip">{h.mode === "trial" ? "🎁" : "✦"} {h.status}</span>
               </div>
             ))}

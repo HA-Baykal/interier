@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser, AuthError } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { activeStyles } from "@/lib/config";
+import { isImageQuality } from "@/lib/generation/quality";
 
 export async function GET(req: NextRequest) {
   let user;
@@ -27,12 +28,24 @@ export async function GET(req: NextRequest) {
         originalUrl: g.originalUrl ?? `/api/uploads/${g.originalId}`,
         resultUrl: g.resultUrl,
         status: g.status,
+        error: g.error,
         provider: g.provider,
+        quality: isImageQuality(g.quality) ? g.quality : undefined,
+        resolution: g.resolution,
+        testProfile: g.testProfile,
+        estimatedCostRub: g.estimatedCostRub,
+        durationMs: g.durationMs,
         mode: g.mode,
         published: !!g.published,
         createdAt: g.createdAt,
+        kind: g.kind || "design",
+        instruction: g.instruction ?? null,
+        changedCategories: g.changedCategories ?? [],
+        parentGenerationId: g.parentGenerationId ?? null,
+        origin: g.origin ?? "web",
+        shopping: g.shopping || null,
       };
     });
 
-  return NextResponse.json({ generations: list });
+  return NextResponse.json({ generations: list }, { headers: { "Cache-Control": "private, no-store" } });
 }

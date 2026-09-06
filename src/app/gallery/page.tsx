@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useLocale } from "@/components/locale-context";
 import { t } from "@/lib/i18n";
+import { ImageLightbox } from "@/components/ImageComparison";
+import DesignItems from "@/components/DesignItems";
+import type { PublicShoppingItem, ShoppingList } from "@/lib/types";
 
 type Item = {
   id: string;
@@ -13,6 +16,8 @@ type Item = {
   resultUrl: string;
   provider: string;
   createdAt: number;
+  /** Opt-in by the owner: where to buy the details of this design. */
+  shopping?: { mode?: "hotspots" | "list"; items: PublicShoppingItem[]; detector?: ShoppingList["detector"]; note?: string | null } | null;
 };
 
 export default function GalleryPage() {
@@ -59,68 +64,40 @@ export default function GalleryPage() {
           }}
         >
           {items.map((it) => (
-            <button
-              key={it.id}
-              onClick={() => setActive(it)}
-              className="gen-result"
-              style={{ cursor: "zoom-in", textAlign: "left", padding: 0, border: "none", background: "transparent" }}
-            >
-              <div className="gallery-card">
-                <img src={it.resultUrl} alt={nameOf(it)} loading="lazy" />
-                <div className="gallery-overlay">
-                  <span className="chip">{nameOf(it)}</span>
+            <div key={it.id}>
+              <button
+                onClick={() => setActive(it)}
+                className="gen-result"
+                style={{ cursor: "zoom-in", textAlign: "left", padding: 0, border: "none", background: "transparent", width: "100%" }}
+              >
+                <div className="gallery-card">
+                  <img src={it.resultUrl} alt={nameOf(it)} loading="lazy" />
+                  <div className="gallery-overlay">
+                    <span className="chip">{nameOf(it)}</span>
+                    {!!it.shopping?.items?.length && (
+                      <span className="chip">🛒 {it.shopping.items.length}</span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </button>
+              </button>
+              {/* Hotspots when every detail has coordinates, otherwise the same
+                  data as a plain list with links — never a half-useful image. */}
+              {!!it.shopping?.items?.length && (
+                <DesignItems
+                  items={it.shopping.items}
+                  imageUrl={it.resultUrl}
+                  mode={it.shopping.mode || "list"}
+                  detector={it.shopping.detector}
+                  hideMeta
+                  hideToggle={false}
+                />
+              )}
+            </div>
           ))}
         </div>
       )}
 
-      {/* Lightbox */}
-      {active && (
-        <div className="lightbox" onClick={() => setActive(null)}>
-          <div className="lightbox-inner" onClick={(e) => e.stopPropagation()}>
-            <button className="lightbox-close" onClick={() => setActive(null)}>
-              ✕
-            </button>
-            {active.originalUrl === active.resultUrl ? (
-              <div className="gen-result" style={{ maxHeight: 380, overflow: "hidden", background: "#000" }}>
-                <img src={active.resultUrl} alt="design" style={{ width: "100%", display: "block" }} />
-              </div>
-            ) : (
-              <div className="lightbox-grid">
-                <div>
-                  <div className="small muted" style={{ marginBottom: 6 }}>
-                    {t(locale, "studio_original_label")}
-                  </div>
-                  <div className="gen-result">
-                    <img src={active.originalUrl} alt="original" />
-                  </div>
-                </div>
-                <div>
-                  <div className="small muted" style={{ marginBottom: 6 }}>
-                    {t(locale, "studio_design_label")}
-                  </div>
-                  <div className="gen-result">
-                    <img src={active.resultUrl} alt="design" />
-                  </div>
-                </div>
-              </div>
-            )}
-            <div className="row" style={{ justifyContent: "space-between", marginTop: 14 }}>
-              <div>
-                <span className="chip">{nameOf(active)}</span>
-                <span className="chip" style={{ marginLeft: 6 }}>
-                  {active.provider}
-                </span>
-              </div>
-              <a className="btn btn-ghost btn-sm" href={active.resultUrl} download>
-                ⬇ {t(locale, "studio_download")}
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
+      {active && <ImageLightbox before={active.originalUrl} after={active.resultUrl} title={`${nameOf(active)} · ${active.provider}`} onClose={() => setActive(null)} />}
 
       <div style={{ textAlign: "center", marginTop: 30 }}>
         <Link href="/studio" className="btn btn-primary">

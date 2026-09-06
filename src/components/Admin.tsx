@@ -5,10 +5,14 @@ import { useState } from "react";
 import { useLocale } from "./locale-context";
 import { authHeaders } from "@/lib/client-auth";
 import { ClientPackage, ClientStyle } from "./types";
+import ModelLab from "./ModelLab";
+import GlobalModelSettings from "./GlobalModelSettings";
+import TelegramSetup from "./TelegramSetup";
 
 type Settings = {
   generation_mode: string;
   free_credits: string;
+  daily_free_image_limit: string;
   reward_telegram: string;
   reward_vk: string;
   reward_referral: string;
@@ -17,7 +21,11 @@ type Settings = {
   compatible_base_url: string;
   compatible_api_key: string;
   compatible_model: string;
+  compatible_quality?: string;
+  compatible_resolution?: string;
+  active_profile?: string | null;
   compatible_configured: boolean;
+  compatible_key_source?: string;
 };
 
 type Env = { hasReplicate: boolean; hasOpenAI: boolean; hasTogether: boolean };
@@ -41,6 +49,10 @@ export default function Admin({
   const router = useRouter();
   const [form, setForm] = useState(settings);
   const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [probing, setProbing] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<string | null>(null);
 
   function field(key: keyof Settings) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -48,16 +60,36 @@ export default function Admin({
   }
 
   async function saveSettings() {
-    const res = await fetch("/api/admin/settings", {
-      method: "PUT",
-      headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-    const data = await res.json();
-    if (data.ok) {
+    setSaving(true);
+    setError(null);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/admin/settings", {
+        method: "PUT",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
+      setForm(data.settings);
       setMsg(t("admin_saved"));
-      setTimeout(() => setMsg(null), 2200);
-    }
+      setDiagnostics(null);
+      router.refresh();
+    } catch (e) { setError(e instanceof Error ? e.message : t("common_error")); }
+    finally { setSaving(false); }
+  }
+
+  async function checkGeneration() {
+    setProbing(true);
+    setError(null);
+    setDiagnostics(null);
+    try {
+      const res = await fetch("/api/admin/genstatus?probe=1", { headers: authHeaders(), cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
+      setDiagnostics(JSON.stringify(data, null, 2));
+    } catch (e) { setError(e instanceof Error ? e.message : t("common_error")); }
+    finally { setProbing(false); }
   }
 
   async function toggleStyle(id: string, active: boolean) {
@@ -114,6 +146,11 @@ export default function Admin({
     <div className="container" style={{ paddingTop: 40, paddingBottom: 70 }}>
       <h1 style={{ fontSize: 30, fontWeight: 800 }}>{t("admin_title")}</h1>
 
+      <GlobalModelSettings activeProfile={form.active_profile || null} enabled={form.compatible_provider === "genapi" && form.compatible_configured}
+        onApplied={next => { setForm(next); setDiagnostics(null); router.refresh(); }} />
+      <TelegramSetup />
+      <ModelLab styles={styles} enabled={settings.compatible_provider === "genapi" && settings.compatible_configured} />
+
       {/* Stats */}
       <div className="admin-grid mt">
         <div className="stat-card"><div className="k">{t("admin_stats_users")}</div><div className="v">{stats.users}</div></div>
@@ -160,6 +197,11 @@ export default function Admin({
           </div>
         </div>
 
+        <div className="field mt">
+          <label htmlFor="daily-free-images">{t("admin_free_daily_limit")}</label>
+          <input id="daily-free-images" className="input" type="number" min="0" max="99999" value={form.daily_free_image_limit} onChange={field("daily_free_image_limit")} />
+          <p className="small muted">{t("admin_free_daily_help")}</p>
+        </div>
         {/* Path #1 aggregator config */}
         <div className="panel mt" style={{ background: "rgba(107,124,255,0.05)", borderColor: "var(--brand)" }}>
           <div className="row" style={{ justifyContent: "space-between" }}>
@@ -195,7 +237,8 @@ export default function Admin({
           </div>
           <div className="field" style={{ marginTop: 12 }}>
             <label>{t("admin_compatible_key")}</label>
-            <input className="input" type="password" placeholder="••••••••" value={form.compatible_api_key} onChange={field("compatible_api_key")} />
+            <input className="input" type="password" autoComplete="new-password" placeholder={form.compatible_configured ? "Ключ сохранён — оставьте пустым, чтобы не менять" : "API-ключ"} value={form.compatible_api_key} onChange={field("compatible_api_key")} />
+            <p className="small muted" style={{ marginTop: 6 }}>Новый ключ автоматически включает режим compatible. Сохранённый ключ не отображается и не передаётся в браузер.</p>
           </div>
           <div className="small muted">→ {t("admin_compatible_model_list")}: 
             {form.compatible_provider === "genapi" ? (
@@ -207,9 +250,10 @@ export default function Admin({
         </div>
 
         <div className="row" style={{ marginTop: 16 }}>
-          <button className="btn btn-primary" onClick={saveSettings}>{t("admin_save")}</button>
-          {msg && <span className="ok">{msg}</span>}
+          <button className="btn btn-primary" onClick={saveSettings} disabled={saving}>{saving ? "Сохраняем…" : t("admin_save")}</button>
+          {msg && <span className="ok" role="status">{msg}</span>}
         </div>
+        {error && <p className="err" role="alert" style={{ marginTop: 12 }}>{error}</p>}
       </div>
 
       {/* AI keys status */}
@@ -223,6 +267,11 @@ export default function Admin({
           <span className="chip">{env.hasTogether ? "✓" : "✗"} Together/fal</span>
           <span className="chip">Режим: {form.generation_mode}</span>
         </div>
+        <p className="small muted" style={{ marginTop: 12 }}>Проверяется сохранённый ключ и запись/чтение в хранилищах. Сначала сохраните изменения. Платная генерация не запускается; временные тестовые данные удаляются.</p>
+        <button className="btn btn-sm" style={{ marginTop: 12 }} onClick={checkGeneration} disabled={probing || saving}>
+          {probing ? "Проверяем… (до минуты)" : "Проверить ИИ и хранилища"}
+        </button>
+        {diagnostics && <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", marginTop: 12 }} role="status">{diagnostics}</pre>}
       </div>
 
       {/* Styles */}

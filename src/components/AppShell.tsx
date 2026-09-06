@@ -82,6 +82,17 @@ export default function AppShell({
     },
   ];
 
+  // Messenger mini apps (/app) render their own chrome — no site header/footer,
+  // otherwise the Telegram/VK/MAX UI would be nested inside our navigation.
+  const isEmbed = pathname.startsWith("/app");
+  if (isEmbed) {
+    return (
+      <LocaleContext.Provider value={{ locale, t: (k, v) => t(locale, k, v), setLocale }}>
+        <main>{children}</main>
+      </LocaleContext.Provider>
+    );
+  }
+
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
     if (href.includes("#")) return false;
@@ -89,7 +100,7 @@ export default function AppShell({
   };
 
   return (
-    <LocaleContext.Provider value={{ locale, t: (k, v) => t(locale, k, v) }}>
+    <LocaleContext.Provider value={{ locale, t: (k, v) => t(locale, k, v), setLocale }}>
       <header className="header">
         <div className="container header-inner">
           <Logo locale={locale} />

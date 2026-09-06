@@ -1,3 +1,6 @@
+import { cleanConnectionValue } from "../env";
+import { providerHttpError } from "../errors";
+
 /**
  * Replicate client for interior-design models.
  *
@@ -19,7 +22,7 @@ export type ReplicateConfig = {
 };
 
 export function defaultReplicateConfig(): ReplicateConfig | null {
-  const token = process.env.REPLICATE_API_TOKEN;
+  const token = cleanConnectionValue(process.env.REPLICATE_API_TOKEN);
   if (!token) return null;
   return {
     token,
@@ -67,10 +70,9 @@ export async function runReplicate(
 
   const url = `https://api.replicate.com/v1/models/${config.modelOwner}/${config.modelName}/predictions`;
 
-  let res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+  let res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body), cache: "no-store", redirect: "error", signal: AbortSignal.timeout(100_000) });
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Replicate start failed (${res.status}): ${text.slice(0, 300)}`);
+    throw await providerHttpError(res, "Replicate start", config.token);
   }
 
   let data = await res.json();
@@ -78,20 +80,19 @@ export async function runReplicate(
   // If `prefer.wait` timed out, Replicate returns status "processing" with an id — poll.
   const id = data.id;
   const deadline = Date.now() + 90_000;
-  while (data.status !== "succeeded" && data.status !== "failed") {
+  while (!["succeeded", "failed", "canceled"].includes(data.status)) {
     if (Date.now() > deadline) {
       throw new Error("Replicate prediction timed out");
     }
     await new Promise((r) => setTimeout(r, 1200));
-    res = await fetch(`https://api.replicate.com/v1/predictions/${id}`, { headers });
+    res = await fetch(`https://api.replicate.com/v1/predictions/${encodeURIComponent(String(id))}`, { headers, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(15_000) });
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`Replicate poll failed (${res.status}): ${text.slice(0, 300)}`);
+      throw await providerHttpError(res, "Replicate poll", config.token);
     }
     data = await res.json();
   }
 
-  if (data.status === "failed") {
+  if (data.status === "failed" || data.status === "canceled") {
     throw new Error(`Replicate prediction failed: ${data.error || "unknown error"}`);
   }
 

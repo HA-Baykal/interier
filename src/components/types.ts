@@ -1,6 +1,6 @@
 export interface ClientUser {
   id: string;
-  email: string;
+  email: string | null;
   name: string;
   credits: number;
   trialUsed: boolean;
@@ -11,6 +11,8 @@ export interface ClientUser {
   telegramGranted: boolean;
   vkGranted: boolean;
   isAdmin: boolean;
+  verified?: boolean;
+  telegramLinked?: boolean;
   referralCount: number;
 }
 

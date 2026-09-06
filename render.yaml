@@ -32,3 +32,31 @@ services:
         value: admin@interier.ru
       - key: ADMIN_PASSWORD
         value: admin123
+      # ===== Боты и мини-приложение (заполняются в панели Render или в /admin) =====
+      # Публичный адрес этого сервиса — нужен, чтобы мессенджеры могли ходить
+      # в вебхук и открывать картинки/мини-приложение.
+      - key: PUBLIC_BASE_URL
+        value: https://interier-fmbx.onrender.com
+      # Ваш числовой Telegram id (узнать: @userinfobot) = админ бота.
+      - key: ADMIN_TELEGRAM_ID
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_BOT_USERNAME
+        sync: false
+      # 1 = разрешить симулятор бота (только на время проверки; потом 0).
+      - key: BOTS_SIMULATOR
+        value: "0"
+      # Секрет для long-polling воркера (npm run bots:poll), если вебхук недоступен.
+      - key: BOT_POLL_SECRET
+        sync: false
+      # VK / MAX — по мере подключения
+      - key: VK_ACCESS_TOKEN
+        sync: false
+      - key: VK_GROUP_ID
+        sync: false
+      - key: MAX_BOT_TOKEN
+        sync: false
+      # Модель-визор для хотспотов (иначе список деталей собирается эвристикой).
+      - key: VISION_MODEL
+        value: gpt-4o-mini

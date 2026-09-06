@@ -48,6 +48,10 @@ function bad(name, detail) {
   console.log(`  \x1b[31m✗\x1b[0m ${name} — ${detail}`);
 }
 const check = (cond, name, detail) => (cond ? ok(name, detail) : bad(name, detail ?? "assertion failed"));
+/** A check that does not apply in this environment: reported, not counted. */
+function skip(name, detail) {
+  console.log(`  \x1b[90m○\x1b[0m ${name}${detail ? ` — ${detail}` : ""}`);
+}
 
 async function api(p, { method = "GET", token, body, form, raw, headers: extra = {} } = {}) {
   const headers = { ...extra };
@@ -128,9 +132,10 @@ async function main() {
   // whole funnel: site asks for a code -> bot redeems it -> account verified.
   const issued0 = await api("/api/account/botlink", { method: "POST", token, body: { platform: "telegram" } });
   const bindCode = issued0.json?.code;
+  const boundChat = "selftest-bind-" + Date.now();
   const simBind = await api("/api/bots/simulator", {
     method: "POST",
-    body: { platform: "telegram", chatId: "selftest-bind-" + Date.now(), externalId: ownerId, text: "/start " + bindCode },
+    body: { platform: "telegram", chatId: boundChat, externalId: ownerId, text: "/start " + bindCode },
   });
   const meVerified = await api("/api/auth/me", { token });
   check(!!bindCode && simBind.status === 200 && meVerified.json?.user?.verified === true, "аккаунт подтверждён через бота", `verified=${meVerified.json?.user?.verified}`);
@@ -355,8 +360,12 @@ async function main() {
   });
   check(tgWithSecret.status === 200, "с секретом обновление обработано", `status ${tgWithSecret.status}`);
   const botsAfter = await api("/api/admin/bots", { token: adminToken });
+  const tgPlatform = (botsAfter.json?.platforms || []).find((p) => p.platform === "telegram");
   const seen = (botsAfter.json?.chats || []).some((c) => c.platform === "telegram" && String(c.chatId) === String(tgChatId));
-  check(seen, "движок приложения получил сообщение через вебхук входа", seen ? "чат зарегистрирован" : "чата нет в списке");
+  // Without a bot token the application half is switched off by design
+  // (src/lib/bots/telegram-webhook.ts) — then there is nothing to assert.
+  if (tgPlatform?.configured) check(seen, "движок приложения получил сообщение через вебхук входа", seen ? "чат зарегистрирован" : "чата нет в списке");
+  else skip("движок приложения получил сообщение через вебхук входа", "токен бота не задан — приложение выключено");
   const tgAuthPrefix = await api("/api/auth/telegram/webhook", {
     method: "POST",
     headers: { "x-telegram-bot-api-secret-token": tgSecret, "content-type": "application/json" },
@@ -369,6 +378,74 @@ async function main() {
     raw: JSON.stringify(update(700002, "/start")),
   });
   check(tgDup.status === 200, "повтор того же update_id безопасен", `status ${tgDup.status}`);
+
+  /* ------------------------------------- 13. bot shopping: no accidental spend */
+  section("13. Бот: детали открывают магазин, а не тратят генерацию");
+  const simChat = (body) => api("/api/bots/simulator", { method: "POST", body: { platform: "telegram", chatId: boundChat, externalId: ownerId, ...body } });
+  const flat = (msgs) => (msgs || []).flatMap((m) => (m.buttons || []).flat());
+
+  const before = await api("/api/auth/me", { token });
+  const gensBefore = (await api("/api/generations", { token })).json?.generations?.length ?? 0;
+
+  const viewed = await simChat({ action: "view:" + g0.id });
+  const listButtons = flat(viewed.json?.messages);
+  check(viewed.status === 200, "бот открыл дизайн из истории", `status ${viewed.status}`);
+  const shopMsg = (viewed.json?.messages || []).find((m) => /Где купить|Where to buy/i.test(m.text || ""));
+  check(!!shopMsg, "список деталей пришёл вместе с дизайном", shopMsg ? (shopMsg.text || "").split("\n")[0] : "нет сообщения");
+  check(
+    !!shopMsg && listButtons.some((b) => String(b.action || "").startsWith("show_item:")),
+    "кнопки деталей ведут на экран магазина",
+    listButtons.filter((b) => String(b.action || "").startsWith("show_item:")).length + " шт."
+  );
+  check(
+    !!shopMsg && !flat([shopMsg]).some((b) => b.kind === "link"),
+    "в общем списке нет прямых ссылок на магазины (они за кнопкой детали)",
+    flat([shopMsg]).filter((b) => b.kind === "link").length + " ссылок"
+  );
+  check(
+    !!shopMsg && !flat([shopMsg]).some((b) => String(b.action || "").startsWith("edit_item:")),
+    "случайное нажатие на деталь не запускает генерацию",
+    "edit_item в списке: " + flat([shopMsg]).filter((b) => String(b.action || "").startsWith("edit_item:")).length
+  );
+
+  // The list may have changed since /api/generate (manual pins/deletes in the
+  // previous sections), so the id is taken from the buttons actually rendered.
+  const botItemId = String(listButtons.find((b) => String(b.action || "").startsWith("show_item:"))?.action || "").split(":")[1] || null;
+  check(!!botItemId, "есть деталь для проверки", botItemId || "нет");
+  if (botItemId) {
+    const item = await simChat({ action: "show_item:" + botItemId });
+    const itemButtons = flat(item.json?.messages);
+    const links = itemButtons.filter((b) => b.kind === "link");
+    check(item.status === 200 && links.length > 0, "экран детали предлагает магазины", links.map((b) => b.text).join(" / ") || "нет ссылок");
+    check(
+      links.every((b) => /^https?:\/\//.test(b.url || "")),
+      "ссылки на магазины абсолютные",
+      links[0]?.url || "—"
+    );
+    check(
+      itemButtons.some((b) => String(b.action || "").startsWith("ask_replace:")),
+      "замена детали предлагается отдельно, с подтверждением",
+      itemButtons.filter((b) => String(b.action || "").startsWith("ask_replace:")).length + " шт."
+    );
+
+    const confirm = await simChat({ action: "ask_replace:" + botItemId });
+    const confirmText = (confirm.json?.messages || []).map((m) => m.text || "").join(" ");
+    check(/потратит|spends/i.test(confirmText), "перед заменой показана цена в генерациях", confirmText.slice(0, 90));
+    check(
+      flat(confirm.json?.messages).some((b) => String(b.action || "").startsWith("edit_item:")),
+      "сама замена доступна только после подтверждения",
+      "кнопка: " + (flat(confirm.json?.messages).find((b) => String(b.action || "").startsWith("edit_item:"))?.text || "—")
+    );
+  }
+
+  const after = await api("/api/auth/me", { token });
+  const gensAfter = (await api("/api/generations", { token })).json?.generations?.length ?? 0;
+  check(gensAfter === gensBefore, "просмотр деталей не создал генераций", `${gensBefore} → ${gensAfter}`);
+  check(
+    (after.json?.user?.credits ?? 0) === (before.json?.user?.credits ?? 0),
+    "баланс не изменился от просмотра и подтверждения",
+    `${before.json?.user?.credits} → ${after.json?.user?.credits}`
+  );
 
   finish();
 }

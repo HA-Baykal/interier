@@ -16,6 +16,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { authHeaders, saveToken, getToken, clearToken } from "@/lib/client-auth";
 import { useLocale } from "./locale-context";
 import DesignItems from "./DesignItems";
+import ImageComparison from "./ImageComparison";
 import { downscaleImage } from "@/lib/client-image";
 import { ClientStyle, ClientUser } from "./types";
 import type { DesignItem, ShoppingList } from "@/lib/types";
@@ -82,9 +83,19 @@ export default function MiniApp({
 
   const [current, setCurrent] = useState<Gen | null>(null);
   const [history, setHistory] = useState<Gen[]>([]);
+  /** Before/after slider for the current design. */
+  const [compare, setCompare] = useState(false);
+  /** Full referral link (built on the client: SSR has no window). */
+  const [refLink, setRefLink] = useState("");
 
   const fileRef = useRef<HTMLInputElement>(null);
   const camRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && user?.referralCode) {
+      setRefLink(`${window.location.origin}/register?ref=${user.referralCode}`);
+    }
+  }, [user?.referralCode]);
 
   const refreshMe = useCallback(async () => {
     try {
@@ -475,7 +486,13 @@ export default function MiniApp({
                   <strong>{current.kind === "edit" ? "✏️ " : "🎨 "}{current.styleName?.[locale === "ru" ? "ru" : "en"]}</strong>
                   <span className="chip">{current.provider}</span>
                 </div>
-                {items.length ? (
+                {compare && current.originalUrl && current.resultUrl && current.resultUrl !== current.originalUrl ? (
+                  <ImageComparison
+                    before={current.originalUrl}
+                    after={current.resultUrl}
+                    title={current.styleName?.[locale === "ru" ? "ru" : "en"]}
+                  />
+                ) : items.length ? (
                   <DesignItems
                     items={items}
                     imageUrl={current.resultUrl || current.originalUrl}
@@ -499,6 +516,13 @@ export default function MiniApp({
                 )}
                 {current.instruction && <div className="small muted" style={{ marginTop: 8 }}>«{current.instruction}»</div>}
                 <div className="row" style={{ gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    disabled={!current.originalUrl || !current.resultUrl || current.resultUrl === current.originalUrl}
+                    onClick={() => setCompare((v) => !v)}
+                  >
+                    {compare ? t("studio_hide_compare") : t("studio_show_compare")}
+                  </button>
                   <button className="btn btn-primary btn-sm" disabled={busy || instruction.trim().length < 2} onClick={applyEdit}>
                     {t("edit_run")}
                   </button>
@@ -547,7 +571,15 @@ export default function MiniApp({
           <>
             <div style={{ fontWeight: 700 }}>🛒 {t("shop_title")}</div>
             {!items.length ? (
-              <div className="app-card center muted">{t("bot_items_none")}</div>
+              <div className="app-card center muted">
+                <div>{t("bot_items_none")}</div>
+                {/* The detector's own reason (shopping switched off, image unreadable…) */}
+                {current?.shopping?.note && <div className="small muted" style={{ marginTop: 6 }}>ℹ️ {current.shopping.note}</div>}
+                <div className="small muted" style={{ marginTop: 6 }}>{t("shop_empty_action")}</div>
+                <button className="btn btn-ghost btn-sm" style={{ marginTop: 10 }} disabled={busy || !current} onClick={refreshShopping}>
+                  🔄 {t("shop_refresh")}
+                </button>
+              </div>
             ) : (
               <div className="app-card">
                 <DesignItems items={items} imageUrl="" mode="list" detector={current?.shopping?.detector} busy={busy} hideToggle onRefresh={refreshShopping} onRemoveItem={removeManual} />
@@ -571,18 +603,30 @@ export default function MiniApp({
               <div className="small muted" style={{ marginTop: 4 }}>
                 {t("account_referral_desc")}
               </div>
-              <div className="ref-box" style={{ marginTop: 10 }}>
-                <span className="ref-link">{user.referralCode}</span>
+              <div className="small muted" style={{ marginTop: 10 }}>
+                {t("account_referral_full")}
+              </div>
+              {/* The whole link is visible and selectable: a truncated input in a
+                  narrow webview showed only the code, so nobody could send it. */}
+              <div className="ref-box" style={{ marginTop: 6, wordBreak: "break-all" }}>
+                <span className="ref-link">{refLink || user.referralCode}</span>
+              </div>
+              <div className="row" style={{ gap: 8, marginTop: 8, flexWrap: "wrap" }}>
                 <button
                   className="btn btn-ghost btn-sm"
                   onClick={() => {
-                    void navigator.clipboard?.writeText(user.referralCode);
+                    void navigator.clipboard?.writeText(refLink || user.referralCode);
                     setNotice(t("account_copied"));
                     setTimeout(() => setNotice(null), 2000);
                   }}
                 >
                   {t("account_copy")}
                 </button>
+                {refLink && (
+                  <a className="btn btn-ghost btn-sm" href={refLink} target="_blank" rel="noreferrer">
+                    {t("account_referral_open")}
+                  </a>
+                )}
               </div>
               <div className="small muted" style={{ marginTop: 6 }}>
                 {t("account_invited", { n: user.referralCount })}

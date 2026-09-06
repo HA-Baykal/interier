@@ -119,6 +119,16 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
             {copied ? "✓" : t("account_copy")}
           </button>
         </div>
+        {/* A narrow input shows only the tail of the link, so the whole address is
+            also printed as selectable text — otherwise nobody can send it. */}
+        <p className="small muted" style={{ marginTop: 8, wordBreak: "break-all" }}>
+          {t("account_referral_full")} <code>{refLink}</code>
+        </p>
+        {refLink && (
+          <a className="btn btn-ghost btn-sm" href={refLink} target="_blank" rel="noreferrer">
+            {t("account_referral_open")}
+          </a>
+        )}
       </div>
 
       {/* Rewards */}

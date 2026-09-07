@@ -325,6 +325,7 @@ const ru: Dict = {
 
   footer_rights: "Все права защищены.",
   footer_made: "Сделано с заботой о вашем интерьере.",
+  footer_offer: "Оферта и реквизиты",
   common_loading: "Загрузка...",
   common_error: "Что-то пошло не так. Попробуйте ещё раз.",
   common_cancel: "Отмена",
@@ -882,6 +883,7 @@ const en: Dict = {
 
   footer_rights: "All rights reserved.",
   footer_made: "Made with care for your interior.",
+  footer_offer: "Offer & requisites",
   common_loading: "Loading...",
   common_error: "Something went wrong. Please try again.",
   common_cancel: "Cancel",

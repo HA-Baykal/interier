@@ -41,6 +41,11 @@ const schema = z.object({
   vision_base_url: z.string().max(500).optional(),
   vision_api_key: z.string().max(1000).optional(),
   vision_model: z.string().max(200).optional(),
+  // Legal requisites shown on the public /offer page (required by payment providers).
+  legal_name: z.string().max(200).optional(),
+  legal_inn: z.string().max(40).optional(),
+  legal_email: z.string().max(200).optional(),
+  legal_phone: z.string().max(40).optional(),
 });
 
 export function adminSettingsView(d: DbShape) {
@@ -81,6 +86,10 @@ export function adminSettingsView(d: DbShape) {
     // to a browser.
     vision_api_key: "",
     vision_model: values.vision_model ?? "",
+    legal_name: values.legal_name ?? "",
+    legal_inn: values.legal_inn ?? "",
+    legal_email: values.legal_email ?? "",
+    legal_phone: values.legal_phone ?? "",
   };
 }
 

@@ -148,7 +148,10 @@ export default function AppShell({
       <footer className="footer">
         <div className="container footer-inner">
           <span>© {new Date().getFullYear()} Interier. {t(locale, "footer_rights")}</span>
-          <span>{t(locale, "footer_made")}</span>
+          <span style={{ display: "inline-flex", gap: 16, alignItems: "center" }}>
+            <Link href="/offer" style={{ textDecoration: "underline" }}>{t(locale, "footer_offer")}</Link>
+            <span>{t(locale, "footer_made")}</span>
+          </span>
         </div>
       </footer>
     </LocaleContext.Provider>

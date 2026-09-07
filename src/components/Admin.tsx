@@ -26,6 +26,10 @@ type Settings = {
   active_profile?: string | null;
   compatible_configured: boolean;
   compatible_key_source?: string;
+  legal_name?: string;
+  legal_inn?: string;
+  legal_email?: string;
+  legal_phone?: string;
 };
 
 type Env = { hasReplicate: boolean; hasOpenAI: boolean; hasTogether: boolean };
@@ -229,6 +233,31 @@ export default function Admin({
             ) : (
               <><code>google/nano-banana-pro</code>, <code>openai/gpt-image-2</code></>
             )}
+          </div>
+        </div>
+
+        <div className="panel mt">
+          <h3 style={{ fontSize: 16 }}>🧾 Реквизиты для оферты и платежей</h3>
+          <p className="small muted" style={{ marginTop: 6 }}>Эти данные выводятся на публичной странице /offer — она нужна для подключения ЮKassa и других платёжных систем.</p>
+          <div className="row" style={{ flexWrap: "wrap", gap: 16, marginTop: 10 }}>
+            <div className="field" style={{ flex: 2, minWidth: 240 }}>
+              <label>ФИО / статус (напр. «ИП Иванов И. И.» или «Самозанятый …»)</label>
+              <input className="input" value={form.legal_name || ""} onChange={field("legal_name")} />
+            </div>
+            <div className="field" style={{ flex: 1, minWidth: 160 }}>
+              <label>ИНН</label>
+              <input className="input" value={form.legal_inn || ""} onChange={field("legal_inn")} />
+            </div>
+          </div>
+          <div className="row" style={{ flexWrap: "wrap", gap: 16, marginTop: 10 }}>
+            <div className="field" style={{ flex: 1, minWidth: 200 }}>
+              <label>E-mail для связи</label>
+              <input className="input" value={form.legal_email || ""} onChange={field("legal_email")} />
+            </div>
+            <div className="field" style={{ flex: 1, minWidth: 200 }}>
+              <label>Телефон</label>
+              <input className="input" value={form.legal_phone || ""} onChange={field("legal_phone")} />
+            </div>
           </div>
         </div>
 

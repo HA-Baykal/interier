@@ -47,11 +47,12 @@ const schema = z.object({
   legal_email: z.string().max(200).optional(),
   legal_phone: z.string().max(40).optional(),
   // Transactional email for registration codes (admin-settable, no redeploy).
-  email_provider: z.enum(["", "resend", "brevo", "unisender"]).optional(),
+  email_provider: z.enum(["", "resend", "brevo", "unisender", "unisender_classic"]).optional(),
   email_from: z.string().max(200).optional(),
   brevo_api_key: z.string().max(1000).optional(),
   resend_api_key: z.string().max(1000).optional(),
   unisender_api_key: z.string().max(1000).optional(),
+  unisender_base_url: z.string().max(300).optional(),
   unisender_list_id: z.string().max(40).optional(),
 });
 
@@ -103,6 +104,7 @@ export function adminSettingsView(d: DbShape) {
     brevo_api_key: "",
     resend_api_key: "",
     unisender_api_key: "",
+    unisender_base_url: values.unisender_base_url || "",
     unisender_list_id: values.unisender_list_id || "",
     email_configured: !!(
       values.brevo_api_key || values.resend_api_key || values.unisender_api_key ||

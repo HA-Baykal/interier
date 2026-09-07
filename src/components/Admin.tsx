@@ -35,6 +35,7 @@ type Settings = {
   brevo_api_key?: string;
   resend_api_key?: string;
   unisender_api_key?: string;
+  unisender_base_url?: string;
   unisender_list_id?: string;
   email_configured?: boolean;
 };
@@ -271,14 +272,15 @@ export default function Admin({
         <div className="panel mt">
           <h3 style={{ fontSize: 16 }}>✉️ Отправка писем (код подтверждения)</h3>
           <p className="small muted" style={{ marginTop: 6 }}>
-            Письма с 6-значным кодом при регистрации. Выберите провайдера, вставьте <b>API-ключ</b> (для Brevo — из вкладки «API keys &amp; MCP», это не SMTP-ключ; для Unisender — из «Настройки → API» в app.unisender.com) и укажите проверенный у провайдера адрес отправителя. {form.email_configured ? "Сейчас: настроено ✓" : "Сейчас: не настроено — код не отправляется."}
+            Письма с 6-значным кодом при регистрации. Выберите провайдера, вставьте <b>API-ключ</b> (для Brevo — из вкладки «API keys &amp; MCP», это не SMTP-ключ; для Unisender Go — из «Настройки → API» в кабинете go1/go2; нужен подтверждённый домен-отправитель) и укажите проверенный у провайдера адрес отправителя. {form.email_configured ? "Сейчас: настроено ✓" : "Сейчас: не настроено — код не отправляется."}
           </p>
           <div className="row" style={{ flexWrap: "wrap", gap: 16, marginTop: 10 }}>
             <div className="field" style={{ flex: 1, minWidth: 180 }}>
               <label>Провайдер</label>
               <select className="input" value={form.email_provider || ""} onChange={field("email_provider")}>
                 <option value="">— не выбран —</option>
-                <option value="unisender">Unisender (РФ)</option>
+                <option value="unisender">Unisender Go (go1/go2 — РФ)</option>
+                <option value="unisender_classic">Unisender классический (app.unisender.com)</option>
                 <option value="brevo">Brevo</option>
                 <option value="resend">Resend</option>
               </select>
@@ -294,7 +296,11 @@ export default function Admin({
               <input className="input" type="password" autoComplete="off" value={form.unisender_api_key || ""} onChange={field("unisender_api_key")} />
             </div>
             <div className="field" style={{ flex: 1, minWidth: 260 }}>
-              <label>Unisender: ID списка рассылки (обязателен)</label>
+              <label>Unisender Go: адрес API (по хосту кабинета)</label>
+              <input className="input" placeholder="https://go2.unisender.ru/ru/transactional/api/v1" value={form.unisender_base_url || ""} onChange={field("unisender_base_url")} />
+            </div>
+            <div className="field" style={{ flex: 1, minWidth: 260 }}>
+              <label>Unisender классический: ID списка</label>
               <input className="input" placeholder="напр. 2654321" value={form.unisender_list_id || ""} onChange={field("unisender_list_id")} />
             </div>
             <div className="field" style={{ flex: 1, minWidth: 260 }}>

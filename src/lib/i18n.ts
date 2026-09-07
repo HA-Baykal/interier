@@ -37,6 +37,7 @@ const ru: Dict = {
   buy_label: "Купить (скоро)",
   buy_disabled: "Оплата подключается позже",
   per_gen: "за 1 генерацию",
+  price_pack: "за весь пакет",
 
   studio_title: "Студия дизайна",
   studio_upload: "Загрузите фото комнаты",
@@ -595,6 +596,7 @@ const en: Dict = {
   buy_label: "Buy (soon)",
   buy_disabled: "Payments coming later",
   per_gen: "per generation",
+  price_pack: "for the whole package",
 
   studio_title: "Design studio",
   studio_upload: "Upload a photo of your room",

@@ -128,7 +128,10 @@ export default async function HomePage() {
                 </div>
                 <div className="desc">{p.description[locale]}</div>
                 <div className="price">
-                  {p.price.toLocaleString("ru-RU")} ₽ <small>/ {t(locale, "per_gen")}</small>
+                  {p.price.toLocaleString("ru-RU")} ₽ <small>{t(locale, "price_pack")}</small>
+                </div>
+                <div className="small muted" style={{ marginTop: 4 }}>
+                  ≈ {Math.round(p.price / p.credits).toLocaleString("ru-RU")} ₽ {t(locale, "per_gen")}
                 </div>
                 <button className="btn btn-ghost" disabled title={t(locale, "buy_disabled")}>
                   {t(locale, "buy_label")}

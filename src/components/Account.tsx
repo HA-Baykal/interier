@@ -79,7 +79,7 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
     });
     const d = await res.json().catch(() => ({}));
     if (d.configured === false) setEmailErr(t("email_not_configured"));
-    else if (!res.ok || d.ok === false) setEmailErr(t("common_error"));
+    else if (!res.ok || d.ok === false) setEmailErr(d.error ? String(d.error) : t("common_error"));
     else setEmailMsg(t("email_verify_hint", { email: user.email || "" }));
   }
 

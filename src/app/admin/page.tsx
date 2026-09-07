@@ -3,6 +3,7 @@ import Admin from "@/components/Admin";
 import AdminBots from "@/components/AdminBots";
 import AdminShopping from "@/components/AdminShopping";
 import AdminPackages from "@/components/AdminPackages";
+import AdminGenerationDetail from "@/components/AdminGenerationDetail";
 import { resolvePageUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { adminSettingsView } from "@/lib/admin-settings";
@@ -52,6 +53,7 @@ export default async function AdminPage({
       }}
       />
       <AdminPackages />
+      <AdminGenerationDetail />
       <AdminShopping />
       <AdminBots />
     </>

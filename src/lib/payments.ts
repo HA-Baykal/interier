@@ -78,3 +78,24 @@ export function verifyYooSignature(rawBody: string, signature: string, secret: s
     }
   });
 }
+
+/**
+ * Source of truth: ask YooKassa for the payment itself. We only credit an order
+ * after the API confirms `status === "succeeded"`, so a forged or replayed
+ * notification can never grant credits. Returns "" if the payment can't be read.
+ */
+export async function getYooPaymentStatus(paymentId: string): Promise<string> {
+  const { shopId, secret, configured } = await paymentsConfig();
+  if (!configured || !paymentId) return "";
+  const auth = Buffer.from(`${shopId}:${secret}`).toString("base64");
+  try {
+    const res = await fetch(`${API}/payments/${encodeURIComponent(paymentId)}`, {
+      headers: { Authorization: `Basic ${auth}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    const json = await res.json().catch(() => null);
+    return res.ok && json ? String((json as any).status || "") : "";
+  } catch {
+    return ""; // сеть/таймаут — не подтверждаем, кредиты не начисляются
+  }
+}

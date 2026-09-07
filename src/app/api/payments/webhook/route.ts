@@ -1,20 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mutate } from "@/lib/db";
 import { addCredits } from "@/lib/billing";
-import { paymentsConfig, verifyYooSignature } from "@/lib/payments";
+import { paymentsConfig, verifyYooSignature, getYooPaymentStatus } from "@/lib/payments";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * YooKassa notifications. We must answer 200 fast; credits are granted exactly
- * once per payment (idempotent by yookassaId + status).
+ * YooKassa notifications. We answer 200 fast; credits are granted exactly once
+ * per payment (idempotent by yookassaId + status) and ONLY after the YooKassa
+ * API confirms the payment really succeeded — so a forged/replayed webhook can
+ * never grant credits. The signature header, when present, is verified too.
  */
 export async function POST(req: NextRequest) {
   const raw = await req.text();
   const { secret } = await paymentsConfig();
   const signature = req.headers.get("x-yookassa-signature") || "";
-  if (secret && !verifyYooSignature(raw, signature, secret)) {
+  // Soft signature check: if YooKassa sent a signature it must be valid; if it
+  // sent none we still proceed because the API check below is the source of truth.
+  if (signature && secret && !verifyYooSignature(raw, signature, secret)) {
     return NextResponse.json({ error: "bad_signature" }, { status: 401 });
   }
 
@@ -25,6 +29,9 @@ export async function POST(req: NextRequest) {
   if (!yookassaId) return NextResponse.json({ ok: true });
 
   if (type === "payment.succeeded") {
+    // Trust, but verify: ask YooKassa for the payment before crediting.
+    const status = await getYooPaymentStatus(yookassaId);
+    if (status !== "succeeded") return NextResponse.json({ ok: true, verified: false });
     const target = await mutate<{ userId: string; credits: number } | null>((d) => {
       const p = d.payments.find((x) => x.yookassaId === yookassaId);
       if (!p || p.status === "paid") return null; // already granted — idempotent

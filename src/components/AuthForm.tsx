@@ -54,8 +54,6 @@ export default function AuthForm({
       <div className="panel">
         <h2>{t(mode === "login" ? "auth_login_title" : "auth_register_title")}</h2>
         <div className="sub">{t("tagline")}</div>
-        <TelegramAccess referralCode={refCode || undefined} />
-        <p className="small muted">{t("tg_email_pending")}</p>
         <form onSubmit={submit}>
           {mode === "register" && (
             <div className="field">
@@ -106,6 +104,13 @@ export default function AuthForm({
             {loading ? t("common_loading") : t(mode === "login" ? "auth_login_btn" : "auth_register_btn")}
           </button>
         </form>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "18px 0 12px" }}>
+          <span style={{ flex: 1, height: 1, background: "rgba(128,128,128,.25)" }} />
+          <span className="small muted">{t("auth_or")}</span>
+          <span style={{ flex: 1, height: 1, background: "rgba(128,128,128,.25)" }} />
+        </div>
+        <TelegramAccess referralCode={refCode || undefined} />
+        <p className="small muted" style={{ marginTop: 10 }}>{t("tg_email_pending")}</p>
         <div className="switcher-note">
           {mode === "login" ? (
             <Link href="/register">{t("auth_to_register")}</Link>

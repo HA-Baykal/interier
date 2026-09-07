@@ -38,6 +38,9 @@ type Settings = {
   unisender_base_url?: string;
   unisender_list_id?: string;
   email_configured?: boolean;
+  yookassa_shop_id?: string;
+  yookassa_secret_key?: string;
+  payments_configured?: boolean;
 };
 
 type Env = { hasReplicate: boolean; hasOpenAI: boolean; hasTogether: boolean };
@@ -347,6 +350,23 @@ export default function Admin({
             </div>
             <button className="btn btn-primary" onClick={verifyBuyer} disabled={verifying || !verifyEmail.trim()}>{verifying ? "…" : "Подтвердить"}</button>
             {verifyMsg && <span className="ok" role="status">{verifyMsg}</span>}
+          </div>
+        </div>
+
+        <div className="panel mt">
+          <h3 style={{ fontSize: 16 }}>💳 Приём платежей (ЮKassa)</h3>
+          <p className="small muted" style={{ marginTop: 6 }}>
+            Данные из личного кабинета ЮKassa → «Интеграции» → «HTTP API». После сохранения кнопка «Купить» на тарифах становится активной. Вебхук в ЮKassa укажите: <code>/api/payments/webhook</code>. {form.payments_configured ? "Сейчас: настроено ✓" : "Сейчас: не настроено — кнопка «Купить (скоро)»."}
+          </p>
+          <div className="row" style={{ flexWrap: "wrap", gap: 16, marginTop: 10 }}>
+            <div className="field" style={{ flex: 1, minWidth: 200 }}>
+              <label>ID магазина (shopId)</label>
+              <input className="input" placeholder="напр. 123456" value={form.yookassa_shop_id || ""} onChange={field("yookassa_shop_id")} />
+            </div>
+            <div className="field" style={{ flex: 2, minWidth: 260 }}>
+              <label>Секретный ключ (secretKey)</label>
+              <input className="input" type="password" autoComplete="off" value={form.yookassa_secret_key || ""} onChange={field("yookassa_secret_key")} />
+            </div>
           </div>
         </div>
 

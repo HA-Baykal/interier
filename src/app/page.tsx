@@ -5,14 +5,14 @@ import { t } from "@/lib/i18n";
 import { activeStyles, activePackages } from "@/lib/config";
 import { getSessionUser } from "@/lib/auth";
 import BuyButton from "@/components/BuyButton";
-import { paymentsConfiguredSync } from "@/lib/payments";
+import { paymentsConfigured } from "@/lib/payments";
 
 export default async function HomePage() {
   const locale = getLocale();
   const styles = await activeStyles();
   const packages = await activePackages();
   const user = await getSessionUser();
-  const payEnabled = paymentsConfiguredSync();
+  const payEnabled = await paymentsConfigured();
   const studioHref = user ? "/studio" : "/register";
 
   return (

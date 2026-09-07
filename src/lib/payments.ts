@@ -15,8 +15,13 @@ export function paymentsConfiguredSync(): boolean {
 
 export async function paymentsConfig(): Promise<{ shopId: string; secret: string; configured: boolean }> {
   const shopId = process.env.YOOKASSA_SHOP_ID || (await getSetting("yookassa_shop_id")) || "";
-  const secret = process.env.YOOKASSA_SECRET_KEY || "";
+  const secret = process.env.YOOKASSA_SECRET_KEY || (await getSetting("yookassa_secret_key")) || "";
   return { shopId, secret, configured: !!shopId && !!secret };
+}
+
+/** Async check that also honours admin-panel settings (not only env). */
+export async function paymentsConfigured(): Promise<boolean> {
+  return (await paymentsConfig()).configured;
 }
 
 const API = "https://api.yookassa.ru/v3";

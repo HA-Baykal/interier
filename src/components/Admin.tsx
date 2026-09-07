@@ -35,6 +35,7 @@ type Settings = {
   brevo_api_key?: string;
   resend_api_key?: string;
   unisender_api_key?: string;
+  unisender_base_url?: string;
   email_configured?: boolean;
 };
 
@@ -291,6 +292,10 @@ export default function Admin({
             <div className="field" style={{ flex: 1, minWidth: 260 }}>
               <label>Unisender Go API-ключ</label>
               <input className="input" type="password" autoComplete="off" value={form.unisender_api_key || ""} onChange={field("unisender_api_key")} />
+            </div>
+            <div className="field" style={{ flex: 1, minWidth: 260 }}>
+              <label>Unisender Go адрес API (по хосту кабинета)</label>
+              <input className="input" placeholder="https://go1.unisender.ru/ru/transactional/api/v1" value={form.unisender_base_url || ""} onChange={field("unisender_base_url")} />
             </div>
             <div className="field" style={{ flex: 1, minWidth: 260 }}>
               <label>Brevo API-ключ (xkeysib-…)</label>

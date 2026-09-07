@@ -52,6 +52,7 @@ const schema = z.object({
   brevo_api_key: z.string().max(1000).optional(),
   resend_api_key: z.string().max(1000).optional(),
   unisender_api_key: z.string().max(1000).optional(),
+  unisender_base_url: z.string().max(300).optional(),
 });
 
 export function adminSettingsView(d: DbShape) {
@@ -102,6 +103,7 @@ export function adminSettingsView(d: DbShape) {
     brevo_api_key: "",
     resend_api_key: "",
     unisender_api_key: "",
+    unisender_base_url: values.unisender_base_url || "",
     email_configured: !!(
       values.brevo_api_key || values.resend_api_key || values.unisender_api_key ||
       process.env.BREVO_API_KEY || process.env.RESEND_API_KEY || process.env.UNISENDER_API_KEY

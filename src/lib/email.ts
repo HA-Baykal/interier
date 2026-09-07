@@ -10,7 +10,7 @@ import { getSetting } from "./config";
  */
 export type EmailSendResult = { ok: boolean; configured: boolean; error?: string };
 
-async function creds(): Promise<{ provider: string; key: string; from: string; fromEmail: string }> {
+async function creds(): Promise<{ provider: string; key: string; from: string; fromEmail: string; unisenderBase: string }> {
   const provider = (await getSetting("email_provider")) || (process.env.EMAIL_PROVIDER || "resend");
   const key =
     provider === "brevo"
@@ -20,7 +20,10 @@ async function creds(): Promise<{ provider: string; key: string; from: string; f
         : (await getSetting("resend_api_key")) || process.env.RESEND_API_KEY || "";
   const fromEmail =
     (await getSetting("email_from")) || process.env.EMAIL_FROM || "no-reply@interier.app";
-  return { provider, key, from: `Interier <${fromEmail}>`, fromEmail };
+  // Unisender Go аккаунт привязан к конкретному серверу (go1/go2/goapi…). Неверный
+  // хост даёт «user not found» (код 114), поэтому адрес API настраивается.
+  const unisenderBase = ((await getSetting("unisender_base_url")) || process.env.UNISENDER_BASE_URL || "https://goapi.unisender.ru/ru/transactional/api/v1").replace(/\/+$/, "");
+  return { provider, key, from: `Interier <${fromEmail}>`, fromEmail, unisenderBase };
 }
 
 export async function isEmailConfigured(): Promise<boolean> {
@@ -29,14 +32,14 @@ export async function isEmailConfigured(): Promise<boolean> {
 
 /** Send a registration confirmation code. Plain-text body, no markup tricks. */
 export async function sendConfirmationCode(to: string, code: string): Promise<EmailSendResult> {
-  const { provider, key, from, fromEmail } = await creds();
+  const { provider, key, from, fromEmail, unisenderBase } = await creds();
   if (!key) return { ok: false, configured: false, error: "email_not_configured" };
   const text =
     `Ваш код подтверждения регистрации в Interier: ${code}\n\nЕсли вы не регистрировались, просто проигнорируйте это письмо.`;
   try {
     if (provider === "unisender") {
-      // Unisender Go (goapi.unisender.ru) — российский транзакционный API.
-      const res = await fetch("https://goapi.unisender.ru/ru/transactional/api/v1/email/send.json", {
+      // Unisender Go — российский транзакционный API. Хост зависит от сервера аккаунта.
+      const res = await fetch(`${unisenderBase}/email/send.json`, {
         method: "POST",
         headers: { "X-API-KEY": key, "Content-Type": "application/json" },
         body: JSON.stringify({

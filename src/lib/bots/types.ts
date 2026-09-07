@@ -73,6 +73,10 @@ export const ACTION = {
   TOGGLE_MODE: "mode",
   REFRESH_SHOP: "refresh_shop",
   EDIT_ITEM: "edit_item",
+  /** Show where one detail can be bought — never spends a credit. */
+  SHOW_ITEM: "show_item",
+  /** Explicit confirmation before an edit generation is charged. */
+  ASK_REPLACE: "ask_replace",
   REGEN: "regen",
   PUBLISH: "publish",
   UNPUBLISH: "unpub",

@@ -80,8 +80,15 @@ try {
     if (request.method() !== 'GET') return route.abort();
     return route.fulfill({ json: {
       configured: true, connected: false, username: 'interier_home_bot', publicOrigin: null, bypassConfigured: false,
-      ...(probe ? { identity: { matches: false, code: 'username_mismatch', expectedUsername: 'interier_home_bot', actualUsername: 'another_home_bot', botIdMatches: true, usernameMatches: false,
-        message: 'Telegram сообщил бота @another_home_bot, а сайт настроен на @interier_home_bot. Webhook не изменён.' } } : {}),
+      ...(probe ? {
+        identity: { matches: false, code: 'username_mismatch', expectedUsername: 'interier_home_bot', actualUsername: 'another_home_bot', botIdMatches: true, usernameMatches: false,
+          message: 'Telegram сообщил бота @another_home_bot, а сайт настроен на @interier_home_bot. Webhook не изменён.' },
+        webhook: { ok: false, code: 'other_deployment', url: 'https://preview.example.test/api/auth/telegram/webhook', expectedUrl: 'https://smoke.example.test/api/auth/telegram/webhook',
+          host: 'preview.example.test', expectedHost: 'smoke.example.test', hadBypass: false, matches: false, sameDeployment: false, pendingUpdates: 2,
+          lastError: null, lastErrorAt: null, lastSyncErrorAt: null, maxConnections: 5, allowedUpdates: ['message'], originSource: 'VERCEL_BRANCH_URL',
+          message: 'Webhook сейчас на preview.example.test — сообщения обрабатывает другой адрес.' },
+        app: { botsEnabled: true, appEnabled: true, simulator: false, inlineGeneration: false, tokenSource: 'env', name: 'Interier — дизайн интерьера', profileAppliedAt: null },
+      } : {}),
     } });
   });
   await page.goto(`${base}/login`);
@@ -114,9 +121,12 @@ try {
   assert.deepEqual(mutations, [], 'Creating/copying a local secret must not submit data or change settings');
   page.off('request', trackMutation);
   assert.ok(!identityChecks.some(check => check.probe), 'Opening settings must not run a remote identity probe');
-  await page.getByRole('button', { name: 'Проверить бота по токену', exact: true }).click();
+  await page.getByRole('button', { name: 'Проверить webhook_info', exact: true }).click();
   await expect(page.locator('#telegram-identity-report')).toContainText('@another_home_bot');
   await expect(page.locator('#telegram-identity-report')).toContainText('@interier_home_bot');
+  // The probe must also show who owns the webhook right now.
+  await expect(page.locator('#telegram-webhook-report')).toContainText('preview.example.test');
+  await expect(page.locator('#telegram-webhook-report')).toContainText('other_deployment');
   assert.equal(identityChecks.filter(check => check.probe).length, 1);
   assert.ok(identityChecks.every(check => check.method === 'GET'), 'Identity inspection must not change webhook settings');
   await expect(page.locator('#global-model-choice')).toHaveValue('gpt-image-2:low');

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useLocale } from "./locale-context";
 import { authHeaders } from "@/lib/client-auth";
-import { ClientPackage, ClientStyle } from "./types";
+import { ClientStyle } from "./types";
 import ModelLab from "./ModelLab";
 import GlobalModelSettings from "./GlobalModelSettings";
 import TelegramSetup from "./TelegramSetup";
@@ -36,13 +36,11 @@ export default function Admin({
   stats,
   settings,
   styles,
-  packages,
   env,
 }: {
   stats: Stats;
   settings: Settings;
   styles: ClientStyle[];
-  packages: ClientPackage[];
   env: Env;
 }) {
   const { t, locale } = useLocale();
@@ -117,21 +115,6 @@ export default function Admin({
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ slug, nameRu, nameEn, descRu, descEn }),
-    });
-    if (res.ok) router.refresh();
-  }
-
-  async function addPackage() {
-    const slug = prompt("Slug (e.g. premium)") || "";
-    if (!slug) return;
-    const nameRu = prompt("Название (RU)") || slug;
-    const nameEn = prompt("Name (EN)") || slug;
-    const credits = Number(prompt("Кредиты (генераций)") || "0");
-    const price = Number(prompt("Цена (₽)") || "0");
-    const res = await fetch("/api/admin/packages", {
-      method: "POST",
-      headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ slug, nameRu, nameEn, credits, price }),
     });
     if (res.ok) router.refresh();
   }
@@ -290,24 +273,6 @@ export default function Admin({
                 {s.active ? "Вкл" : "Выкл"}
               </button>
               <button className="btn btn-sm btn-danger" onClick={() => delStyle(s.id)}>✕</button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Packages */}
-      <div className="panel mt">
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <h2 style={{ fontSize: 19 }}>{t("admin_packages")}</h2>
-          <button className="btn btn-sm" onClick={addPackage}>+ {t("admin_add_style")}</button>
-        </div>
-        <div className="mt">
-          {packages.map((p) => (
-            <div key={p.id} className="hist-item">
-              <div className="grow">
-                <div style={{ fontWeight: 600 }}>{locale === "ru" ? p.nameRu : p.nameEn}</div>
-                <div className="small muted">{p.credits} {t("credits_label")} · {p.price} ₽</div>
-              </div>
             </div>
           ))}
         </div>

@@ -157,6 +157,37 @@ async function main() {
     if (p.error) add("fail", `${name} доставка`, p.error, `Telegram откладывает доставки при недоступном URL: откройте ${tgPath} в браузере (должен быть JSON с «service»), проверьте сертификат и порт 443`);
   }
 
+  /* --- 6b. who owns the Telegram bot right now -------------------------- */
+  // The chat is served by whichever deployment registered the webhook last, so
+  // "the bot answers like an old version" is always a webhook-ownership problem.
+  const tgProbe = adminToken ? await get("/api/admin/telegram?probe=1", adminToken) : { status: 0 };
+  if (tgProbe.status === 200 && tgProbe.json?.webhook) {
+    const w = tgProbe.json.webhook;
+    const app = tgProbe.json.app || {};
+    if (w.ok) add("ok", "telegram webhook", `${w.url} — сообщения доходят на эту версию`);
+    else
+      add(
+        "fail",
+        "telegram webhook",
+        `[${w.code}] ${String(w.message).split("\n")[0]}`,
+        w.code === "not_registered"
+          ? "нажмите «Подключить бота к этой версии» в /admin → Telegram"
+          : "поставьте флажок переключения и нажмите «Подключить бота к этой версии»"
+      );
+    if (w.pendingUpdates > 0) add("warn", "telegram очередь", `в Telegram ждут ${w.pendingUpdates} недоставленных сообщений`);
+    if (w.originSource === "VERCEL_BRANCH_URL")
+      add("warn", "telegram адрес", "публичный адрес берётся из VERCEL_BRANCH_URL и меняется у каждого деплоя", "задайте AUTH_PUBLIC_URL=https://<прод-домен>, затем перезапишите вебхук");
+    if (app.appEnabled) add("ok", "telegram приложение", `бот-приложение включено (токен: ${app.tokenSource === "panel" ? "админка" : "env"})`);
+    else add("fail", "telegram приложение", "бот-приложение выключено — бот отвечает только на подтверждения входа", "проверьте bots_enabled и telegram_bot_token в /admin → Боты");
+    if (app.simulator) add("fail", "telegram симулятор", "bots_simulator=1 — на проде должен быть 0", "выключите в /admin → Боты");
+    else add("ok", "telegram симулятор", "bots_simulator=0");
+    if (app.name) add("ok", "telegram имя", `setMyName: ${app.name}`);
+    else add("warn", "telegram имя", "telegram_name не задан — имя в Telegram осталось от BotFather", "впишите имя в /admin → Боты и нажмите «Применить профиль бота»");
+    if (!app.profileAppliedAt) add("warn", "telegram профиль", "профиль бота ещё не отправлялся в Telegram", "«Применить профиль бота» в /admin → Telegram");
+  } else if (adminToken) {
+    add("warn", "telegram webhook", "диагностика недоступна — нет токена бота", "сохраните telegram_bot_token в /admin → Боты или TELEGRAM_BOT_TOKEN в env");
+  }
+
   /* --- 7. webhook is protected ------------------------------------------ */
   const health = await get(tgPath);
   if (health.status === 200 && health.json?.service) add("ok", "вебхук входа/бота", `${tgPath} отвечает: ${health.json.service}`);

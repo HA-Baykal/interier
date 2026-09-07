@@ -63,6 +63,27 @@ export default function Admin({
   const [saving, setSaving] = useState(false);
   const [probing, setProbing] = useState(false);
   const [diagnostics, setDiagnostics] = useState<string | null>(null);
+  const [verifyEmail, setVerifyEmail] = useState("");
+  const [verifyMsg, setVerifyMsg] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+
+  async function verifyBuyer() {
+    setVerifying(true);
+    setVerifyMsg(null);
+    try {
+      const res = await fetch("/api/admin/verify-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: verifyEmail.trim() }),
+      });
+      const d = await res.json().catch(() => ({}));
+      setVerifyMsg(res.ok ? "Готово — покупатель подтверждён ✓" : (d.error === "user_not_found" ? "Аккаунт с такой почтой не найден" : "Не получилось"));
+    } catch {
+      setVerifyMsg("Не получилось");
+    } finally {
+      setVerifying(false);
+    }
+  }
 
   function field(key: keyof Settings) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -311,6 +332,21 @@ export default function Admin({
               <label>Resend API-ключ (re_…)</label>
               <input className="input" type="password" autoComplete="off" value={form.resend_api_key || ""} onChange={field("resend_api_key")} />
             </div>
+          </div>
+        </div>
+
+        <div className="panel mt">
+          <h3 style={{ fontSize: 16 }}>✅ Подтвердить покупателя вручную</h3>
+          <p className="small muted" style={{ marginTop: 6 }}>
+            Если покупатель (или модератор платёжной системы) не получает код на почту — введите его e-mail и нажмите кнопку. Аккаунт станет подтверждённым, и вход по логину/паролю будет работать без кода.
+          </p>
+          <div className="row" style={{ flexWrap: "wrap", gap: 12, marginTop: 10, alignItems: "flex-end" }}>
+            <div className="field" style={{ flex: 2, minWidth: 240 }}>
+              <label>E-mail покупателя</label>
+              <input className="input" type="email" placeholder="buyer@example.com" value={verifyEmail} onChange={(e) => setVerifyEmail(e.target.value)} />
+            </div>
+            <button className="btn btn-primary" onClick={verifyBuyer} disabled={verifying || !verifyEmail.trim()}>{verifying ? "…" : "Подтвердить"}</button>
+            {verifyMsg && <span className="ok" role="status">{verifyMsg}</span>}
           </div>
         </div>
 

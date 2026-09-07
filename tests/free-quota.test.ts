@@ -6,7 +6,7 @@ import { TEST_USER } from "./helpers";
 
 const customer = { ...TEST_USER, isAdmin: false };
 function data(limit = "10", generations: Generation[] = []): DbShape {
-  return { users: [customer], sessions: [], generations, rewards: [], referrals: [], styles: [], packages: [], settings: [{ key: "daily_free_image_limit", value: limit }], botChats: [], botLinks: [] };
+  return { users: [customer], sessions: [], generations, rewards: [], referrals: [], styles: [], packages: [], settings: [{ key: "daily_free_image_limit", value: limit }], botChats: [], botLinks: [], payments: [] };
 }
 function entry(createdAt: number, status: Generation["status"] = "failed"): Generation {
   return { id: String(createdAt), userId: customer.id, styleId: "style_modern", originalId: "img", resultUrl: null, status, error: null, provider: "gpt-image-2", mode: "trial", createdAt, published: false, freeBudgeted: true };

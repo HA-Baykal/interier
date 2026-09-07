@@ -11,6 +11,7 @@ const EMPTY: DbShape = {
   users: [], sessions: [], generations: [], rewards: [], referrals: [], styles: [], packages: [], settings: [],
   // Messenger state (chats, one-time link/bind tokens). Same document, same CAS.
   botChats: [], botLinks: [],
+  payments: [],
 };
 let memoryState: DbShape | null = null;
 let memoryFallback = false;

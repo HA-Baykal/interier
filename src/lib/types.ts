@@ -262,6 +262,18 @@ export type Setting = {
   value: string;
 };
 
+export type Payment = {
+  id: string;
+  /** YooKassa payment id (object.id in the webhook). */
+  yookassaId: string;
+  userId: string;
+  packageId: string;
+  amountRub: number;
+  credits: number;
+  status: "pending" | "paid" | "failed";
+  createdAt: number;
+};
+
 export type DbShape = {
   users: User[];
   sessions: Session[];
@@ -273,4 +285,5 @@ export type DbShape = {
   settings: Setting[];
   botChats: BotChat[];
   botLinks: BotLinkToken[];
+  payments: Payment[];
 };

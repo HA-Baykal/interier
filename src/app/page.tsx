@@ -4,12 +4,15 @@ import { getLocale } from "@/lib/locale";
 import { t } from "@/lib/i18n";
 import { activeStyles, activePackages } from "@/lib/config";
 import { getSessionUser } from "@/lib/auth";
+import BuyButton from "@/components/BuyButton";
+import { paymentsConfiguredSync } from "@/lib/payments";
 
 export default async function HomePage() {
   const locale = getLocale();
   const styles = await activeStyles();
   const packages = await activePackages();
   const user = await getSessionUser();
+  const payEnabled = paymentsConfiguredSync();
   const studioHref = user ? "/studio" : "/register";
 
   return (
@@ -133,9 +136,7 @@ export default async function HomePage() {
                 <div className="small muted" style={{ marginTop: 4 }}>
                   ≈ {Math.round(p.price / p.credits).toLocaleString("ru-RU")} ₽ {t(locale, "per_gen")}
                 </div>
-                <button className="btn btn-ghost" disabled title={t(locale, "buy_disabled")}>
-                  {t(locale, "buy_label")}
-                </button>
+                <BuyButton packageId={p.id} enabled={payEnabled} />
               </div>
             ))}
           </div>

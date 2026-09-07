@@ -10,14 +10,15 @@ import { getSetting } from "./config";
  */
 export type EmailSendResult = { ok: boolean; configured: boolean; error?: string };
 
-async function creds(): Promise<{ key: string; from: string }> {
+async function creds(): Promise<{ provider: string; key: string; from: string; fromEmail: string }> {
+  const provider = (await getSetting("email_provider")) || (process.env.EMAIL_PROVIDER || "resend");
   const key =
-    (await getSetting("resend_api_key")) || process.env.RESEND_API_KEY || "";
-  const from =
-    (await getSetting("email_from")) ||
-    process.env.EMAIL_FROM ||
-    "Interier <no-reply@interier.app>";
-  return { key, from };
+    provider === "brevo"
+      ? (await getSetting("brevo_api_key")) || process.env.BREVO_API_KEY || ""
+      : (await getSetting("resend_api_key")) || process.env.RESEND_API_KEY || "";
+  const fromEmail =
+    (await getSetting("email_from")) || process.env.EMAIL_FROM || "no-reply@interier.app";
+  return { provider, key, from: `Interier <${fromEmail}>`, fromEmail };
 }
 
 export async function isEmailConfigured(): Promise<boolean> {
@@ -26,9 +27,26 @@ export async function isEmailConfigured(): Promise<boolean> {
 
 /** Send a registration confirmation code. Plain-text body, no markup tricks. */
 export async function sendConfirmationCode(to: string, code: string): Promise<EmailSendResult> {
-  const { key, from } = await creds();
+  const { provider, key, from, fromEmail } = await creds();
   if (!key) return { ok: false, configured: false, error: "email_not_configured" };
+  const text =
+    `Ваш код подтверждения регистрации в Interier: ${code}\n\nЕсли вы не регистрировались, просто проигнорируйте это письмо.`;
   try {
+    if (provider === "brevo") {
+      const res = await fetch("https://api.brevo.com/v3/smtp/emails", {
+        method: "POST",
+        headers: { "api-key": key, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sender: { email: fromEmail, name: "Interier" },
+          to: [{ email: to }],
+          subject: "Interier — код подтверждения регистрации",
+          textContent: text,
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) return { ok: false, configured: true, error: String((json as any)?.message || res.status) };
+      return { ok: true, configured: true };
+    }
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
@@ -36,7 +54,7 @@ export async function sendConfirmationCode(to: string, code: string): Promise<Em
         from,
         to: [to],
         subject: "Interier — код подтверждения регистрации",
-        text: `Ваш код подтверждения регистрации в Interier: ${code}\n\nЕсли вы не регистрировались, просто проигнорируйте это письмо.`,
+        text,
       }),
     });
     const json = await res.json().catch(() => null);

@@ -15,7 +15,9 @@ async function creds(): Promise<{ provider: string; key: string; from: string; f
   const key =
     provider === "brevo"
       ? (await getSetting("brevo_api_key")) || process.env.BREVO_API_KEY || ""
-      : (await getSetting("resend_api_key")) || process.env.RESEND_API_KEY || "";
+      : provider === "unisender"
+        ? (await getSetting("unisender_api_key")) || process.env.UNISENDER_API_KEY || ""
+        : (await getSetting("resend_api_key")) || process.env.RESEND_API_KEY || "";
   const fromEmail =
     (await getSetting("email_from")) || process.env.EMAIL_FROM || "no-reply@interier.app";
   return { provider, key, from: `Interier <${fromEmail}>`, fromEmail };
@@ -32,6 +34,27 @@ export async function sendConfirmationCode(to: string, code: string): Promise<Em
   const text =
     `Ваш код подтверждения регистрации в Interier: ${code}\n\nЕсли вы не регистрировались, просто проигнорируйте это письмо.`;
   try {
+    if (provider === "unisender") {
+      // Unisender Go (goapi.unisender.ru) — российский транзакционный API.
+      const res = await fetch("https://goapi.unisender.ru/ru/transactional/api/v1/email/send.json", {
+        method: "POST",
+        headers: { "X-API-KEY": key, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: {
+            recipients: [{ email: to }],
+            from_email: fromEmail,
+            from_name: "Interier",
+            subject: "Interier — код подтверждения регистрации",
+            body: { plaintext: text, html: `<div style="white-space:pre-wrap;font-family:sans-serif">${text.replace(/</g, "&lt;")}</div>` },
+          },
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || (json as any)?.status === "error") {
+        return { ok: false, configured: true, error: String((json as any)?.message || (json as any)?.code || res.status) };
+      }
+      return { ok: true, configured: true };
+    }
     if (provider === "brevo") {
       const res = await fetch("https://api.brevo.com/v3/smtp/emails", {
         method: "POST",

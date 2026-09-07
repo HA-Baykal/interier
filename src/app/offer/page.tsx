@@ -11,12 +11,14 @@ export const dynamic = "force-dynamic";
  * come from the admin panel so the owner edits them without code.
  */
 export default async function OfferPage() {
-  const [name, inn, email, phone] = await Promise.all([
+  const [name, innSetting, email, phone] = await Promise.all([
     getSetting("legal_name"),
     getSetting("legal_inn"),
     getSetting("legal_email"),
     getSetting("legal_phone"),
   ]);
+  // The owner asked to publish the INN without the full personal name.
+  const inn = innSetting || "381113216450";
 
   const h = "2.5rem";
   return (
@@ -29,8 +31,8 @@ export default async function OfferPage() {
 
       <h2 style={{ fontSize: 22, fontWeight: 700, marginTop: h }}>1. Исполнитель и реквизиты</h2>
       <p style={{ lineHeight: 1.7 }}>
-        {name ? <>Услугу оказывает: <b>{name}</b>.</> : <>Услугу оказывает исполнитель (самозанятый / ИП); реквизиты уточняются.</>}
-        {inn && <> ИНН: <b>{inn}</b>.</>}
+        {name ? <>Услугу оказывает: <b>{name}</b>.</> : <>Услугу оказывает самозанятый.</>}{" "}
+        ИНН: <b>{inn}</b>.
         {phone && <> Телефон: {phone}.</>}
         {email && <> Электронная почта: {email}.</>}
       </p>

@@ -484,7 +484,6 @@ export default function MiniApp({
               <div className="app-card">
                 <div className="row" style={{ justifyContent: "space-between", marginBottom: 10 }}>
                   <strong>{current.kind === "edit" ? "✏️ " : "🎨 "}{current.styleName?.[locale === "ru" ? "ru" : "en"]}</strong>
-                  <span className="chip">{current.provider}</span>
                 </div>
                 {compare && current.originalUrl && current.resultUrl && current.resultUrl !== current.originalUrl ? (
                   <ImageComparison

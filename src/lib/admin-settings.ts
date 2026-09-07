@@ -46,6 +46,11 @@ const schema = z.object({
   legal_inn: z.string().max(40).optional(),
   legal_email: z.string().max(200).optional(),
   legal_phone: z.string().max(40).optional(),
+  // Transactional email for registration codes (admin-settable, no redeploy).
+  email_provider: z.enum(["", "resend", "brevo"]).optional(),
+  email_from: z.string().max(200).optional(),
+  brevo_api_key: z.string().max(1000).optional(),
+  resend_api_key: z.string().max(1000).optional(),
 });
 
 export function adminSettingsView(d: DbShape) {
@@ -90,6 +95,15 @@ export function adminSettingsView(d: DbShape) {
     legal_inn: values.legal_inn ?? "",
     legal_email: values.legal_email ?? "",
     legal_phone: values.legal_phone ?? "",
+    email_provider: values.email_provider || "",
+    email_from: values.email_from || "",
+    // Write-only keys: a saved key is never sent to a browser.
+    brevo_api_key: "",
+    resend_api_key: "",
+    email_configured: !!(
+      values.brevo_api_key || values.resend_api_key ||
+      process.env.BREVO_API_KEY || process.env.RESEND_API_KEY
+    ),
   };
 }
 
@@ -105,6 +119,8 @@ export async function updateAdminSettings(body: unknown) {
   // Empty password input means "keep current key / use env", not "erase".
   if (!updates.compatible_api_key) delete updates.compatible_api_key;
   if (!updates.vision_api_key) delete updates.vision_api_key;
+  if (!updates.brevo_api_key) delete updates.brevo_api_key;
+  if (!updates.resend_api_key) delete updates.resend_api_key;
   if (updates.vision_api_key) updates.vision_provider = "custom";
   if (updates.compatible_api_key) updates.generation_mode = "compatible";
   if (updates.generation_mode) updates.generation_mode_explicit = "1";

@@ -176,6 +176,32 @@ export default function AdminBots() {
     }
   }
 
+  async function findVk() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch("/api/admin/vk?action=groups", { headers: authHeaders() });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.ok) {
+        setErr(String(d.error || t("common_error")));
+        return;
+      }
+      const groups: { id: string; name: string }[] = d.groups || [];
+      if (groups.length === 1) {
+        set("vk_group_id", groups[0].id);
+        setMsg(t("bots_vk_found", { name: groups[0].name, id: groups[0].id }));
+      } else if (groups.length > 1) {
+        setMsg(t("bots_vk_many", { list: groups.map((g) => `${g.name}=${g.id}`).join(", ") }));
+      } else {
+        setErr(t("admin_bots_not_connected"));
+      }
+    } catch {
+      setErr(t("common_error"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function simulate() {
     setBusy(true);
     setErr(null);
@@ -347,6 +373,21 @@ export default function AdminBots() {
               </div>
             ))}
           </div>
+          {group.group === "bots_group_vk" && (
+            <>
+              <div className="row" style={{ marginTop: 12 }}>
+                <button className="btn btn-sm btn-ghost" onClick={findVk} disabled={busy}>
+                  {t("bots_vk_find")}
+                </button>
+              </div>
+              <details style={{ marginTop: 10 }}>
+                <summary className="small muted" style={{ cursor: "pointer" }}>{t("bots_vk_help_title")}</summary>
+                <p className="small muted" style={{ whiteSpace: "pre-line", marginTop: 8, lineHeight: 1.6 }}>
+                  {t("bots_vk_help")}
+                </p>
+              </details>
+            </>
+          )}
           <div className="row" style={{ marginTop: 14 }}>
             <button className="btn btn-primary btn-sm" onClick={save} disabled={busy}>
               {t("admin_save")}

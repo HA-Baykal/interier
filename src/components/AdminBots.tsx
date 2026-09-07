@@ -176,6 +176,30 @@ export default function AdminBots() {
     }
   }
 
+  async function diagVk() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch("/api/admin/vk?action=diagnose", { headers: authHeaders() });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.ok) {
+        setErr(String(d.error || t("common_error")));
+        return;
+      }
+      const ours = d.ours;
+      const msgNew = d.settings ? String((d.settings as any).message_new ?? "?") : "—";
+      if (!ours) {
+        setErr(`${t("bots_vk_diag_no_server")} ${d.ourUrl}`);
+      } else {
+        setMsg(`${t("bots_vk_diag_ok")} ${t("bots_vk_diag_state")}: ${ours.state || "?"}; message_new=${msgNew}`);
+      }
+    } catch {
+      setErr(t("common_error"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function findVk() {
     setBusy(true);
     setErr(null);
@@ -378,6 +402,9 @@ export default function AdminBots() {
               <div className="row" style={{ marginTop: 12 }}>
                 <button className="btn btn-sm btn-ghost" onClick={findVk} disabled={busy}>
                   {t("bots_vk_find")}
+                </button>
+                <button className="btn btn-sm btn-ghost" onClick={diagVk} disabled={busy}>
+                  {t("bots_vk_diag")}
                 </button>
               </div>
               <details style={{ marginTop: 10 }}>

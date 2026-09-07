@@ -7,6 +7,7 @@ import { hashPassword, makeSession, setSessionCookie, makeReferralCode, isSecure
 import { assertSameOrigin } from "@/lib/request-origin";
 import { enforceRateLimit, requestClientBucket } from "@/lib/security-store";
 import { getSettingNumber } from "@/lib/config";
+import { makeCode, sendConfirmationCode } from "@/lib/email";
 
 const schema = z.object({
   name: z.string().min(2).max(60),
@@ -58,6 +59,7 @@ async function register(req: NextRequest) {
   const newReferralCode = await makeReferralCode(emailNorm);
 
   const passwordHash = hashPassword(password);
+  const confirmCode = makeCode();
   const created = await mutate((draft) => {
     if (draft.users.some((u) => u.email === emailNorm)) return false;
     draft.users.push({
@@ -76,6 +78,8 @@ async function register(req: NextRequest) {
       referredBy,
       isAdmin: false,
       identityVerifiedAt: null, identityVerifiedBy: null,
+      emailConfirmCode: confirmCode,
+      emailConfirmExpires: now() + 30 * 60_000,
     });
     if (referredBy && draft.users.some(user => user.id === referredBy)) {
       draft.referrals.push({ id: uid("ref"), referrerId: referredBy, referredEmail: emailNorm, referredUserId: userId, rewarded: false, createdAt: now() });
@@ -87,6 +91,8 @@ async function register(req: NextRequest) {
   // Referral credit is deferred until a real confirmation flow verifies this account.
   // Merely registering an arbitrary email must not mint spendable credits for a referrer.
 
+  const emailSent = await sendConfirmationCode(emailNorm, confirmCode);
+
   const token = await makeSession(userId);
   setSessionCookie(token, isSecureRequest(req));
 
@@ -96,5 +102,6 @@ async function register(req: NextRequest) {
     credits: freeCredits,
     referralApplied: false,
     verificationRequired: true,
+    emailVerification: { sent: emailSent.ok, configured: emailSent.configured },
   });
 }

@@ -59,6 +59,9 @@ export type User = {
   verifiedIdentities?: { provider: "telegram" | "vk" | "max"; subject: string; verifiedAt: number }[];
   identityVerifiedAt?: number | null;
   identityVerifiedBy?: "email" | "telegram" | "vk" | "max" | null;
+  /** One-time code emailed at registration; cleared once the owner confirms it. */
+  emailConfirmCode?: string | null;
+  emailConfirmExpires?: number | null;
 };
 
 export type BotPlatform = "telegram" | "vk" | "max";

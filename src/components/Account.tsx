@@ -14,6 +14,9 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
   const [history, setHistory] = useState<any[]>([]);
   const [pubIds, setPubIds] = useState<Record<string, boolean>>({});
   const [refLink, setRefLink] = useState("");
+  const [code, setCode] = useState("");
+  const [emailMsg, setEmailMsg] = useState<string | null>(null);
+  const [emailErr, setEmailErr] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/auth/me", { headers: authHeaders() })
@@ -44,6 +47,41 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
       setRefLink(`${window.location.origin}/register?ref=${user.referralCode}`);
     }
   }, [user.referralCode]);
+
+  async function reloadUser() {
+    const r = await fetch("/api/auth/me", { headers: authHeaders(), cache: "no-store" });
+    const d = await r.json().catch(() => ({}));
+    if (d.user) setUser(d.user);
+  }
+
+  async function verifyEmail() {
+    setEmailErr(null);
+    const res = await fetch("/api/auth/verify-email", {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setEmailMsg(t("email_verified"));
+      await reloadUser();
+    } else {
+      setEmailErr(t(d.error === "wrong_code" || d.error === "code_expired" ? "email_wrong" : d.error === "no_code" || d.error === "email_not_configured" ? "email_not_configured" : "common_error"));
+    }
+  }
+
+  async function resendCode() {
+    setEmailErr(null);
+    const res = await fetch("/api/auth/verify-email", {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "resend" }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (d.configured === false) setEmailErr(t("email_not_configured"));
+    else if (!res.ok || d.ok === false) setEmailErr(t("common_error"));
+    else setEmailMsg(t("email_verify_hint", { email: user.email || "" }));
+  }
 
   async function copyRef() {
     try {
@@ -97,6 +135,28 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
           <div style={{ fontSize: 42, fontWeight: 800, color: "var(--brand)" }}>{user.credits}</div>
         </div>
       </div>
+
+      {user.email && !user.verified && (
+        <div className="panel mt">
+          <h2 style={{ fontSize: 19 }}>✉️ {t("email_verify_title")}</h2>
+          <p className="small muted mt">{t("email_verify_hint", { email: user.email })}</p>
+          <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+            <input
+              className="input"
+              style={{ maxWidth: 160 }}
+              inputMode="numeric"
+              maxLength={6}
+              placeholder={t("email_code_ph")}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+            />
+            <button className="btn btn-primary" onClick={verifyEmail}>{t("email_verify_btn")}</button>
+            <button className="btn btn-ghost" onClick={resendCode}>{t("email_resend")}</button>
+          </div>
+          {emailMsg && <p className="ok small mt">{emailMsg}</p>}
+          {emailErr && <p className="err small mt">{emailErr}</p>}
+        </div>
+      )}
 
       <div className="panel mt">
         <h2 style={{ fontSize: 19 }}>{t("tg_account_title")}</h2>

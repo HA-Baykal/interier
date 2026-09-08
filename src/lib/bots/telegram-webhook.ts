@@ -12,6 +12,8 @@ import { mutateSecurityDocument } from "../security-store";
 import { telegramConfig } from "./config";
 import { dispatchAndFinish } from "./dispatch";
 import { normalizeTelegramUpdate } from "./telegram";
+import { tgCall } from "./telegramApi";
+import { fulfillStarsPayment } from "../payments-stars";
 
 export async function dispatchTelegramWebhook(req: Request, update: unknown): Promise<void> {
   try {
@@ -33,6 +35,38 @@ export async function dispatchTelegramWebhook(req: Request, update: unknown): Pr
       if (!firstTime) return;
     }
     if (!(await getSettingBool("bots_enabled", true))) return;
+
+    // Telegram Stars payments live on the same webhook. `pre_checkout_query`
+    // must be answered within ~10s (we approve), and `successful_payment` is
+    // where the package credits are granted (idempotent by our payment id).
+    const anyUpdate = update as {
+      pre_checkout_query?: { id?: string };
+      message?: { successful_payment?: { invoice_payload?: string; telegram_payment_charge_id?: string }; chat?: { id?: number | string } };
+    };
+    if (anyUpdate.pre_checkout_query?.id) {
+      try {
+        await tgCall("answerPreCheckoutQuery", { pre_checkout_query_id: anyUpdate.pre_checkout_query.id, ok: true });
+      } catch {
+        /* approving is best-effort; Telegram retries the query */
+      }
+      return;
+    }
+    const paid = anyUpdate.message?.successful_payment;
+    if (paid) {
+      const res = await fulfillStarsPayment(String(paid.invoice_payload || ""), String(paid.telegram_payment_charge_id || ""));
+      const chatId = anyUpdate.message?.chat?.id;
+      if (chatId) {
+        const text = res.granted
+          ? `✅ Оплата прошла! Начислено генераций: ${res.credits}.`
+          : "ℹ️ Этот платёж уже учтён.";
+        try {
+          await tgCall("sendMessage", { chat_id: String(chatId), text });
+        } catch {
+          /* the credits are already granted; the receipt is cosmetic */
+        }
+      }
+      return;
+    }
 
     // The login transport owns its own callback namespace and start payload; the
     // app must never react to them (a replay would create accounts or answer a

@@ -58,6 +58,8 @@ const schema = z.object({
   yookassa_shop_id: z.string().max(40).optional(),
   yookassa_secret_key: z.string().max(1000).optional(),
   yookassa_api_url: z.string().max(300).optional(),
+  // Курс Telegram Stars: сколько Звёзд стоит 1 ₽ (десятичное число).
+  stars_per_rub: z.string().regex(/^\d{1,5}(\.\d{1,2})?$/).optional(),
 });
 
 export function adminSettingsView(d: DbShape) {
@@ -114,6 +116,7 @@ export function adminSettingsView(d: DbShape) {
     // Секретный ключ write-only: никогда не отдаётся в браузер.
     yookassa_secret_key: "",
     yookassa_api_url: values.yookassa_api_url || "",
+    stars_per_rub: values.stars_per_rub || "1",
     payments_configured: !!(
       (values.yookassa_shop_id && values.yookassa_secret_key) ||
       (process.env.YOOKASSA_SHOP_ID && process.env.YOOKASSA_SECRET_KEY)

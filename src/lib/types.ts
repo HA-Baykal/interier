@@ -264,7 +264,7 @@ export type Setting = {
 
 export type Payment = {
   id: string;
-  /** YooKassa payment id (object.id in the webhook). */
+  /** YooKassa payment id (object.id in the webhook). Empty for Stars/TON. */
   yookassaId: string;
   userId: string;
   packageId: string;
@@ -272,6 +272,10 @@ export type Payment = {
   credits: number;
   status: "pending" | "paid" | "failed";
   createdAt: number;
+  /** Which rail charged the buyer. Defaults to YooKassa for old records. */
+  provider?: "yookassa" | "stars" | "ton";
+  /** Provider-side id (Telegram charge id, TON payment id) for idempotency. */
+  externalId?: string;
 };
 
 export type DbShape = {

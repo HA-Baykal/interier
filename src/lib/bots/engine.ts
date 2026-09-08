@@ -176,7 +176,10 @@ async function startFlow(ctx: Ctx, arg: string): Promise<BotReply> {
       first
         ? {
             text: tr(locale, "bot_ask_photo"),
-            buttons: clampKeyboard([[{ kind: "callback", text: tr(locale, "bot_btn_design"), action: ACTION.START_DESIGN }]]),
+            buttons: clampKeyboard([
+              [{ kind: "app", text: tr(locale, "bot_btn_app"), url: ctx.appLink } as BotButton],
+              [{ kind: "callback", text: tr(locale, "bot_btn_design"), action: ACTION.START_DESIGN } as BotButton],
+            ]),
           }
         : null,
     ].filter(Boolean) as BotOutbound[],
@@ -187,6 +190,8 @@ async function menu(ctx: Ctx): Promise<BotOutbound> {
   const { locale, user, isAdmin } = ctx;
   const L = (k: string, v?: Record<string, string | number>) => tr(locale, k, v);
   const rows = [
+    // The Mini App is the product: keep its button first, always in view.
+    [{ kind: "app", text: L("bot_btn_app"), url: ctx.appLink } as BotButton],
     [{ kind: "callback", text: L("bot_btn_design"), action: ACTION.START_DESIGN } as BotButton],
     [
       { kind: "callback", text: L("bot_btn_edit"), action: ACTION.ASK_INSTRUCTION } as BotButton,
@@ -206,7 +211,6 @@ async function menu(ctx: Ctx): Promise<BotOutbound> {
     ],
     [{ kind: "callback", text: L("bot_btn_help"), action: ACTION.HELP } as BotButton],
     isAdmin ? [{ kind: "callback", text: L("bot_btn_admin"), action: ACTION.ADMIN } as BotButton] : null,
-    [{ kind: "app", text: L("bot_btn_app"), url: ctx.appLink } as BotButton],
   ];
   return { text: L("bot_menu_title"), buttons: clampKeyboard(rows) };
 }

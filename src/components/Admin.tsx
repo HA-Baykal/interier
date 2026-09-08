@@ -42,6 +42,7 @@ type Settings = {
   yookassa_secret_key?: string;
   yookassa_api_url?: string;
   payments_configured?: boolean;
+  stars_per_rub?: string;
 };
 
 type Env = { hasReplicate: boolean; hasOpenAI: boolean; hasTogether: boolean };
@@ -374,7 +375,14 @@ export default function Admin({
               <label>Адрес API (для тестового магазина: https://api.test.yookassa.ru/v3)</label>
               <input className="input" placeholder="https://api.yookassa.ru/v3 (по умолчанию)" value={form.yookassa_api_url || ""} onChange={field("yookassa_api_url")} />
             </div>
+            <div className="field" style={{ flex: 1, minWidth: 200 }}>
+              <label>⭐ Звёзд за 1 ₽ (курс для оплаты Stars)</label>
+              <input className="input" type="number" min="0.1" step="0.1" placeholder="1" value={form.stars_per_rub || ""} onChange={field("stars_per_rub")} />
+            </div>
           </div>
+          <p className="small muted" style={{ marginTop: 6 }}>
+            Оплата Telegram Stars работает внутри Mini App без дополнительных ключей — нужен только подключённый бот. Цена пакета в Звёздах = цена в ₽ × этот курс (округляется, минимум 1).
+          </p>
         </div>
 
         <div className="row" style={{ marginTop: 16 }}>

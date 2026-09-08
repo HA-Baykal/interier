@@ -40,7 +40,9 @@ type Gen = {
   note?: string | null;
 };
 
-type Tab = "create" | "history" | "shop" | "account";
+type Tab = "create" | "history" | "shop" | "packages" | "account";
+
+type Pack = { id: string; name: { ru: string; en: string }; credits: number; price: number; badge?: { ru: string; en: string } | null };
 
 type TgWebApp = {
   ready?: () => void;
@@ -52,6 +54,7 @@ type TgWebApp = {
   setHeaderColor?: (c: string) => void;
   setBackgroundColor?: (c: string) => void;
   openLink?: (url: string, opts?: { try_instant_view?: boolean }) => void;
+  openInvoice?: (url: string, cb?: (status: string) => void) => void;
   disableVerticalSwipes?: () => void;
 };
 
@@ -83,6 +86,8 @@ export default function MiniApp({
 
   const [current, setCurrent] = useState<Gen | null>(null);
   const [history, setHistory] = useState<Gen[]>([]);
+  const [packs, setPacks] = useState<Pack[]>([]);
+  const [payBusy, setPayBusy] = useState<string | null>(null);
   /** Before/after slider for the current design. */
   const [compare, setCompare] = useState(false);
   /** Full referral link (built on the client: SSR has no window). */
@@ -174,6 +179,13 @@ export default function MiniApp({
       if (!cancelled) {
         await refreshMe();
         await refreshHistory();
+        try {
+          const r = await fetch("/api/packages");
+          const d = await r.json().catch(() => ({}));
+          if (!cancelled && Array.isArray(d.packages)) setPacks(d.packages);
+        } catch {
+          /* the catalogue is optional */
+        }
       }
     }
     void boot();
@@ -334,6 +346,65 @@ export default function MiniApp({
   }
 
   const items = current?.shopping?.items || [];
+
+  /** Card / SBP via YooKassa: create the payment and go to their checkout. */
+  async function buyCard(packId: string) {
+    setPayBusy(packId + ":card");
+    setError(null);
+    try {
+      const res = await fetch("/api/payments/create", {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ packageId: packId }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.confirmationUrl) {
+        setError(d.message ? String(d.message) : t("pay_error"));
+        return;
+      }
+      // Leave the Mini App for the bank's page; YooKassa returns to /account.
+      const app = tg();
+      if (app?.openLink) app.openLink(d.confirmationUrl);
+      else window.location.href = d.confirmationUrl;
+    } catch {
+      setError(t("pay_error"));
+    } finally {
+      setPayBusy(null);
+    }
+  }
+
+  /** Telegram Stars: open the native invoice sheet, credits arrive by webhook. */
+  async function buyStars(packId: string) {
+    const app = tg();
+    if (!app?.openInvoice) {
+      setError(t("pay_stars_unavailable"));
+      return;
+    }
+    setPayBusy(packId + ":stars");
+    setError(null);
+    try {
+      const res = await fetch("/api/payments/stars/create", {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ packageId: packId }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.url) {
+        setError(d.message ? String(d.message) : t("pay_error"));
+        return;
+      }
+      app.openInvoice(d.url, async () => {
+        // The webhook grants the credits; refresh the balance either way.
+        await refreshMe();
+        setNotice(t("pay_stars_done"));
+        setTimeout(() => setNotice(null), 3000);
+      });
+    } catch {
+      setError(t("pay_error"));
+    } finally {
+      setPayBusy(null);
+    }
+  }
 
   /* ---------------- login screen ---------------- */
   if (!user) {
@@ -587,6 +658,42 @@ export default function MiniApp({
           </>
         )}
 
+        {tab === "packages" && (
+          <>
+            <div style={{ fontWeight: 700 }}>💎 {t("packages_title")}</div>
+            <div className="small muted" style={{ marginTop: 4 }}>{t("packages_hint")}</div>
+            {error && <div className="err" style={{ marginTop: 8 }}>{error}</div>}
+            {notice && <div className="small muted" style={{ marginTop: 8 }}>{notice}</div>}
+            {!packs.length ? (
+              <div className="app-card center muted">{t("common_loading")}</div>
+            ) : (
+              packs.map((p) => (
+                <div className="app-card" key={p.id}>
+                  <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ fontWeight: 700 }}>
+                        {locale === "ru" ? p.name.ru : p.name.en}
+                        {p.badge ? <span className="chip" style={{ marginLeft: 6 }}>{locale === "ru" ? p.badge.ru : p.badge.en}</span> : null}
+                      </div>
+                      <div className="small muted" style={{ marginTop: 2 }}>
+                        {t("account_credits")}: <b>{p.credits}</b> · {p.price} ₽
+                      </div>
+                    </div>
+                  </div>
+                  <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                    <button className="btn btn-primary btn-sm" disabled={payBusy === p.id + ":stars"} onClick={() => buyStars(p.id)}>
+                      {payBusy === p.id + ":stars" ? t("common_loading") : `⭐ ${t("pay_stars")}`}
+                    </button>
+                    <button className="btn btn-ghost btn-sm" disabled={payBusy === p.id + ":card"} onClick={() => buyCard(p.id)}>
+                      {payBusy === p.id + ":card" ? t("common_loading") : `💳 ${t("pay_sbp")}`}
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </>
+        )}
+
         {tab === "account" && (
           <>
             <div className="app-card">
@@ -698,6 +805,7 @@ export default function MiniApp({
             ["create", "🎨", t("app_tab_create")],
             ["history", "🖼", t("app_tab_history")],
             ["shop", "🛒", t("app_tab_shop")],
+            ["packages", "💎", t("app_tab_packages")],
             ["account", "👤", t("app_tab_account")],
           ] as [Tab, string, string][]
         ).map(([id, ico, label]) => (

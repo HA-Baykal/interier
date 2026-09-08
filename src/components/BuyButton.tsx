@@ -25,7 +25,7 @@ export default function BuyButton({ packageId, enabled }: { packageId: string; e
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d.confirmationUrl) {
-        setErr(t("pay_error"));
+        setErr(d.message ? String(d.message) : t("pay_error"));
         return;
       }
       window.location.href = d.confirmationUrl;

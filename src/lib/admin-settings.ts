@@ -57,6 +57,7 @@ const schema = z.object({
   // Приём платежей ЮKassa (shop id + секретный ключ).
   yookassa_shop_id: z.string().max(40).optional(),
   yookassa_secret_key: z.string().max(1000).optional(),
+  yookassa_api_url: z.string().max(300).optional(),
 });
 
 export function adminSettingsView(d: DbShape) {
@@ -112,6 +113,7 @@ export function adminSettingsView(d: DbShape) {
     yookassa_shop_id: values.yookassa_shop_id || "",
     // Секретный ключ write-only: никогда не отдаётся в браузер.
     yookassa_secret_key: "",
+    yookassa_api_url: values.yookassa_api_url || "",
     payments_configured: !!(
       (values.yookassa_shop_id && values.yookassa_secret_key) ||
       (process.env.YOOKASSA_SHOP_ID && process.env.YOOKASSA_SECRET_KEY)

@@ -40,6 +40,7 @@ type Settings = {
   email_configured?: boolean;
   yookassa_shop_id?: string;
   yookassa_secret_key?: string;
+  yookassa_api_url?: string;
   payments_configured?: boolean;
 };
 
@@ -366,6 +367,12 @@ export default function Admin({
             <div className="field" style={{ flex: 2, minWidth: 260 }}>
               <label>Секретный ключ (secretKey)</label>
               <input className="input" type="password" autoComplete="off" value={form.yookassa_secret_key || ""} onChange={field("yookassa_secret_key")} />
+            </div>
+          </div>
+          <div className="row" style={{ flexWrap: "wrap", gap: 16, marginTop: 10 }}>
+            <div className="field" style={{ flex: 1, minWidth: 320 }}>
+              <label>Адрес API (для тестового магазина: https://api.test.yookassa.ru/v3)</label>
+              <input className="input" placeholder="https://api.yookassa.ru/v3 (по умолчанию)" value={form.yookassa_api_url || ""} onChange={field("yookassa_api_url")} />
             </div>
           </div>
         </div>

@@ -13,18 +13,19 @@ export function paymentsConfiguredSync(): boolean {
   return !!(process.env.YOOKASSA_SHOP_ID && process.env.YOOKASSA_SECRET_KEY);
 }
 
-export async function paymentsConfig(): Promise<{ shopId: string; secret: string; configured: boolean }> {
+export async function paymentsConfig(): Promise<{ shopId: string; secret: string; apiBase: string; configured: boolean }> {
   const shopId = process.env.YOOKASSA_SHOP_ID || (await getSetting("yookassa_shop_id")) || "";
   const secret = process.env.YOOKASSA_SECRET_KEY || (await getSetting("yookassa_secret_key")) || "";
-  return { shopId, secret, configured: !!shopId && !!secret };
+  // Боевой API по умолчанию; для тестового магазина ЮKassa можно указать
+  // https://api.test.yookassa.ru/v3 в админке (или env YOOKASSA_API_URL).
+  const apiBase = ((await getSetting("yookassa_api_url")) || process.env.YOOKASSA_API_URL || "https://api.yookassa.ru/v3").replace(/\/+$/, "");
+  return { shopId, secret, apiBase, configured: !!shopId && !!secret };
 }
 
 /** Async check that also honours admin-panel settings (not only env). */
 export async function paymentsConfigured(): Promise<boolean> {
   return (await paymentsConfig()).configured;
 }
-
-const API = "https://api.yookassa.ru/v3";
 
 export type YooPayment = { id: string; confirmationUrl: string };
 
@@ -34,10 +35,10 @@ export async function createYooPayment(opts: {
   returnUrl: string;
   metadata: Record<string, string>;
 }): Promise<YooPayment> {
-  const { shopId, secret, configured } = await paymentsConfig();
+  const { shopId, secret, apiBase, configured } = await paymentsConfig();
   if (!configured) throw new Error("payments_not_configured");
   const auth = Buffer.from(`${shopId}:${secret}`).toString("base64");
-  const res = await fetch(`${API}/payments`, {
+  const res = await fetch(`${apiBase}/payments`, {
     method: "POST",
     headers: {
       Authorization: `Basic ${auth}`,
@@ -85,11 +86,11 @@ export function verifyYooSignature(rawBody: string, signature: string, secret: s
  * notification can never grant credits. Returns "" if the payment can't be read.
  */
 export async function getYooPaymentStatus(paymentId: string): Promise<string> {
-  const { shopId, secret, configured } = await paymentsConfig();
+  const { shopId, secret, apiBase, configured } = await paymentsConfig();
   if (!configured || !paymentId) return "";
   const auth = Buffer.from(`${shopId}:${secret}`).toString("base64");
   try {
-    const res = await fetch(`${API}/payments/${encodeURIComponent(paymentId)}`, {
+    const res = await fetch(`${apiBase}/payments/${encodeURIComponent(paymentId)}`, {
       headers: { Authorization: `Basic ${auth}` },
       signal: AbortSignal.timeout(10_000),
     });

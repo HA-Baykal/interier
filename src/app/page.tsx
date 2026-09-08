@@ -4,12 +4,15 @@ import { getLocale } from "@/lib/locale";
 import { t } from "@/lib/i18n";
 import { activeStyles, activePackages } from "@/lib/config";
 import { getSessionUser } from "@/lib/auth";
+import BuyButton from "@/components/BuyButton";
+import { paymentsConfigured } from "@/lib/payments";
 
 export default async function HomePage() {
   const locale = getLocale();
   const styles = await activeStyles();
   const packages = await activePackages();
   const user = await getSessionUser();
+  const payEnabled = await paymentsConfigured();
   const studioHref = user ? "/studio" : "/register";
 
   return (
@@ -19,7 +22,7 @@ export default async function HomePage() {
         <div className="container">
           <span className="hero-badge">
             <span className="dot" />
-            {t(locale, "free_gen")} · {t(locale, "pricing_testmode")}
+            {t(locale, "free_gen")}
           </span>
           <h1>{t(locale, "hero_title")}</h1>
           <p>{t(locale, "hero_subtitle")}</p>
@@ -128,17 +131,15 @@ export default async function HomePage() {
                 </div>
                 <div className="desc">{p.description[locale]}</div>
                 <div className="price">
-                  {p.price.toLocaleString("ru-RU")} ₽ <small>/ {t(locale, "per_gen")}</small>
+                  {p.price.toLocaleString("ru-RU")} ₽ <small>{t(locale, "price_pack")}</small>
                 </div>
-                <button className="btn btn-ghost" disabled title={t(locale, "buy_disabled")}>
-                  {t(locale, "buy_label")}
-                </button>
+                <div className="small muted" style={{ marginTop: 4 }}>
+                  ≈ {Math.round(p.price / p.credits).toLocaleString("ru-RU")} ₽ {t(locale, "per_gen")}
+                </div>
+                <BuyButton packageId={p.id} enabled={payEnabled} />
               </div>
             ))}
           </div>
-          <p className="section-sub" style={{ marginTop: 26 }}>
-            <span className="testmode-pill">🔒 {t(locale, "pricing_testmode")}</span>
-          </p>
         </div>
       </section>
 

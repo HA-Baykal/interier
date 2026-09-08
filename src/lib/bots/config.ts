@@ -7,12 +7,15 @@
  */
 
 import { getSetting, getSettingBool, getSettingOrEnv } from "../config";
+import { cleanConnectionValue } from "../env";
 import { BotPlatform } from "../types";
 
 export type TelegramConfig = {
   enabled: boolean;
   token: string;
   botUsername: string | null;
+  /** Display name shown in the chat list and the profile (`setMyName`, ≤64). */
+  name: string | null;
   miniAppUrl: string | null;
   webhookSecret: string | null;
   adminId: string | null;
@@ -49,10 +52,25 @@ export async function telegramConfig(): Promise<TelegramConfig> {
     token,
     botUsername:
       (await getSettingOrEnv("telegram_bot_username", "TELEGRAM_BOT_USERNAME")).replace(/^@/, "") || null,
+    // The name users see in the chat list: it must say "app", not "login".
+    name: (await getSettingOrEnv("telegram_name", "TELEGRAM_BOT_NAME")).slice(0, 64) || null,
     miniAppUrl: (await getSettingOrEnv("telegram_mini_app_url", "TELEGRAM_MINI_APP_URL")) || null,
     webhookSecret: (await getSettingOrEnv("telegram_webhook_secret", "TELEGRAM_WEBHOOK_SECRET")) || null,
     adminId: adminId ? String(adminId).replace(/^\@/, "") : null,
   };
+}
+
+/**
+ * Where the bot token comes from. The admin diagnostics show this, because a
+ * token saved only in the panel (or only in the environment) is a frequent
+ * reason one half of the product works while the other stays silent.
+ */
+export async function telegramTokenSource(): Promise<{ token: string; source: "panel" | "env" } | null> {
+  const fromPanel = normalizeToken((await getSetting("telegram_bot_token")) || "");
+  if (fromPanel) return { token: fromPanel, source: "panel" };
+  const fromEnv = normalizeToken(cleanConnectionValue(process.env.TELEGRAM_BOT_TOKEN || ""));
+  if (fromEnv) return { token: fromEnv, source: "env" };
+  return null;
 }
 
 export async function vkConfig(): Promise<VkConfig> {

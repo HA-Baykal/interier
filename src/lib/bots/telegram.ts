@@ -74,13 +74,14 @@ export async function tgWebhookInfo(): Promise<{ url: string | null; pending: nu
 }
 
 const COMMANDS = [
-  { command: "start", description: "Главное меню / menu" },
+  { command: "start", description: "Меню приложения" },
   { command: "new", description: "Создать дизайн по фото" },
   { command: "edit", description: "Изменить деталь (например, шторы)" },
-  { command: "shop", description: "Список покупок по последнему дизайну" },
+  { command: "shop", description: "Где купить детали дизайна" },
   { command: "history", description: "Мои дизайны" },
   { command: "app", description: "Открыть приложение" },
   { command: "credits", description: "Баланс генераций" },
+  { command: "help", description: "Как это работает" },
   { command: "cancel", description: "Отменить текущий шаг" },
 ];
 
@@ -92,6 +93,74 @@ export async function tgSetCommands(): Promise<void> {
   } catch {
     /* non-fatal */
   }
+}
+
+/** What the bot's profile in Telegram should say. */
+export type TelegramProfile = {
+  /** `setMyName` — ≤64 characters. */
+  name?: string | null;
+  description?: string | null;
+  descriptionEn?: string | null;
+  shortDescription?: string | null;
+  shortDescriptionEn?: string | null;
+  menuButtonText?: string | null;
+  menuButtonUrl?: string | null;
+};
+
+/**
+ * Push the profile to Telegram: name, «About» texts, command list and the Mini
+ * App menu button. This is what a user reads *before* writing to the bot, so it
+ * is the difference between «бот подтверждает вход» and «здесь делают дизайн».
+ * Every call is independent: an old Bot API server may reject one of them.
+ */
+export async function tgApplyProfile(profile: TelegramProfile): Promise<{ applied: string[]; errors: string[] }> {
+  const cfg = await telegramConfig();
+  if (!cfg.token) return { applied: [], errors: ["TELEGRAM_BOT_TOKEN is not set"] };
+
+  const planned: { label: string; method: string; payload: Record<string, unknown> }[] = [];
+  if (profile.name) planned.push({ label: "name", method: "setMyName", payload: { name: profile.name.slice(0, 64) } });
+  if (profile.description) {
+    planned.push({ label: "description", method: "setMyDescription", payload: { description: profile.description.slice(0, 512) } });
+  }
+  if (profile.descriptionEn) {
+    planned.push({
+      label: "description_en",
+      method: "setMyDescription",
+      payload: { description: profile.descriptionEn.slice(0, 512), language_code: "en" },
+    });
+  }
+  if (profile.shortDescription) {
+    planned.push({ label: "short_description", method: "setMyShortDescription", payload: { short_description: profile.shortDescription.slice(0, 120) } });
+  }
+  if (profile.shortDescriptionEn) {
+    planned.push({
+      label: "short_description_en",
+      method: "setMyShortDescription",
+      payload: { short_description: profile.shortDescriptionEn.slice(0, 120), language_code: "en" },
+    });
+  }
+  planned.push({ label: "commands", method: "setMyCommands", payload: { commands: COMMANDS } });
+  if (profile.menuButtonUrl) {
+    planned.push({
+      label: "menu_button",
+      method: "setChatMenuButton",
+      payload: {
+        menu_button: { type: "web_app", text: (profile.menuButtonText || "Открыть приложение").slice(0, 30), web_view_url: profile.menuButtonUrl },
+      },
+    });
+  }
+
+  const applied: string[] = [];
+  const errors: string[] = [];
+  for (const step of planned) {
+    try {
+      await call(cfg.token, step.method, step.payload);
+      applied.push(step.label);
+    } catch (e) {
+      errors.push(`${step.method}: ${e instanceof Error ? e.message.slice(0, 160) : String(e)}`);
+    }
+  }
+  return { applied, errors };
 }
 
 /** Long-polling helper used by the dev worker (`npm run bots:poll`). */

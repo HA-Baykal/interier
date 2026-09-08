@@ -39,16 +39,17 @@ test("legacy social IDs, reward flags and self-entered details are not verified 
   assert.equal(isIdentityVerified({ ...legacy, isAdmin: true }), true);
 });
 
-test("unverified users cannot upload or issue any provider call, even when the client says verified", async (t) => {
-  let calls = 0;
-  t.mock.method(globalThis, "fetch", async () => { calls++; throw new Error("Must not contact provider"); });
-  const res = await generate.POST(req());
-  assert.equal(res.status, 403);
-  assert.equal((await res.json()).error, "verification_required");
-  assert.equal(calls, 0);
-  const data = await db.db();
-  assert.equal(data.generations.length, 0);
-  assert.equal(data.users[0].trialUsed, false);
+test("email confirmation is no longer a hard gate: an unverified account can start the trial", async (t) => {
+  let starts = 0;
+  t.mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+    if (init?.method === "POST") { starts++; return Response.json({ request_id: 1 }); }
+    if (String(url).includes("/request/get/")) return Response.json({ status: "success", result: ["https://result.example.test/image.png"] });
+    return new Response(new Uint8Array(PNG));
+  });
+  const first = await (await generate.POST(req())).json();
+  assert.equal(first.consumed, "trial");
+  assert.equal(first.generations[0].status, "done");
+  assert.equal(starts, 1);
 });
 
 test("global test unlimited applies to administrators only", async () => {

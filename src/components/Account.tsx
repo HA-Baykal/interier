@@ -14,6 +14,9 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
   const [history, setHistory] = useState<any[]>([]);
   const [pubIds, setPubIds] = useState<Record<string, boolean>>({});
   const [refLink, setRefLink] = useState("");
+  const [code, setCode] = useState("");
+  const [emailMsg, setEmailMsg] = useState<string | null>(null);
+  const [emailErr, setEmailErr] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/auth/me", { headers: authHeaders() })
@@ -44,6 +47,41 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
       setRefLink(`${window.location.origin}/register?ref=${user.referralCode}`);
     }
   }, [user.referralCode]);
+
+  async function reloadUser() {
+    const r = await fetch("/api/auth/me", { headers: authHeaders(), cache: "no-store" });
+    const d = await r.json().catch(() => ({}));
+    if (d.user) setUser(d.user);
+  }
+
+  async function verifyEmail() {
+    setEmailErr(null);
+    const res = await fetch("/api/auth/verify-email", {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setEmailMsg(t("email_verified"));
+      await reloadUser();
+    } else {
+      setEmailErr(t(d.error === "wrong_code" || d.error === "code_expired" ? "email_wrong" : d.error === "no_code" || d.error === "email_not_configured" ? "email_not_configured" : "common_error"));
+    }
+  }
+
+  async function resendCode() {
+    setEmailErr(null);
+    const res = await fetch("/api/auth/verify-email", {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "resend" }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (d.configured === false) setEmailErr(t("email_not_configured"));
+    else if (!res.ok || d.ok === false) setEmailErr(d.error ? String(d.error) : t("common_error"));
+    else setEmailMsg(t("email_verify_hint", { email: user.email || "" }));
+  }
 
   async function copyRef() {
     try {
@@ -98,6 +136,13 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
         </div>
       </div>
 
+      {!user.verified && (
+        <div className="panel mt">
+          <h2 style={{ fontSize: 19 }}>🎁 {t("tg_bonus_title")}</h2>
+          <p className="small muted mt">{t("tg_bonus_hint")}</p>
+        </div>
+      )}
+
       <div className="panel mt">
         <h2 style={{ fontSize: 19 }}>{t("tg_account_title")}</h2>
         {user.telegramLinked ? <p className="ok mt">{t("tg_linked")}</p> : <>
@@ -119,6 +164,16 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
             {copied ? "✓" : t("account_copy")}
           </button>
         </div>
+        {/* A narrow input shows only the tail of the link, so the whole address is
+            also printed as selectable text — otherwise nobody can send it. */}
+        <p className="small muted" style={{ marginTop: 8, wordBreak: "break-all" }}>
+          {t("account_referral_full")} <code>{refLink}</code>
+        </p>
+        {refLink && (
+          <a className="btn btn-ghost btn-sm" href={refLink} target="_blank" rel="noreferrer">
+            {t("account_referral_open")}
+          </a>
+        )}
       </div>
 
       {/* Rewards */}

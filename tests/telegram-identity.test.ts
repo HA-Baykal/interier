@@ -35,15 +35,18 @@ beforeEach(async () => {
 });
 after(() => cleanup());
 
-function mockMe(t: TestContext, result: unknown) {
+function mockMe(t: TestContext, result: unknown, webhookInfo: unknown = { url: "" }) {
   const calls: string[] = [];
   t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit) => {
     calls.push(url);
-    assert.equal(url, `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getMe`);
+    // The probe is read-only: getMe (identity) and getWebhookInfo (diagnostics).
+    const method = url.split("/").at(-1);
+    assert.ok(method === "getMe" || method === "getWebhookInfo", `unexpected Bot API call: ${method}`);
+    assert.ok(url.startsWith(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/`));
     assert.equal(init.method, "POST");
     assert.equal(init.cache, "no-store");
     assert.equal(init.redirect, "error");
-    return Response.json({ ok: true, result });
+    return Response.json({ ok: true, result: method === "getMe" ? result : webhookInfo });
   });
   return calls;
 }
@@ -137,8 +140,13 @@ test("only an administrator's explicit probe calls getMe; the safe API returns i
   const text = await response.text();
   assert.equal(JSON.parse(text).identity.actualUsername, "another_home_bot");
   assert.ok(!text.includes(token)); assert.ok(!text.includes(bypass));
-  assert.equal(calls.length, 1);
+  // getMe (identity) + getWebhookInfo (diagnostics) — one pair per probe.
+  assert.equal(calls.length, 2);
+  assert.ok(calls.some(c => c.endsWith("/getWebhookInfo")), "the probe must read webhook_info");
+  const body = JSON.parse(text);
+  assert.ok(body.webhook, "the probe must report the webhook state");
+  assert.ok(body.app, "the probe must report the application switches");
   await store.mutate(d => { d.users[0].isAdmin = false; });
   assert.equal((await route.GET(new NextRequest(`${url}?probe=1`, { headers }))).status, 403);
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2);
 });

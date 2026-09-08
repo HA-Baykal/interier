@@ -67,7 +67,8 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
   user: ClientUser; styles: ClientStyle[]; aiConfigured: boolean; isDemo: boolean; initialUnlimited: boolean; activeProfileLabel: string; activeProfileEstimate?: number;
 }) {
   const { t, locale } = useLocale();
-  const verified = user.isAdmin || user.verified === true;
+  // Подтверждение почты больше не требуется; вход/регистрация дают доступ.
+  const verified = true;
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const camRef = useRef<HTMLInputElement>(null);
@@ -305,7 +306,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
               {trialAvailable && !unlimited && <span className="chip" style={{ color: "var(--success)" }}>🎁 {t("studio_free_left")}</span>}
             </div>
 
-            {!isDemo && aiConfigured && <p className="small muted mt">{t("global_model_current")}: <strong>{activeProfileLabel}</strong></p>}
+            {user.isAdmin && !isDemo && aiConfigured && <p className="small muted mt">{t("global_model_current")}: <strong>{activeProfileLabel}</strong></p>}
             {user.isAdmin && !isDemo && aiConfigured && (
               <p className="small muted mt">{t("studio_provider_billing_note")}</p>
             )}
@@ -358,7 +359,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
             <div>
               <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
                 <h2 style={{ fontSize: 18 }}>{t("studio_result")}</h2>
-                <span className="chip">{results[0].provider}{isImageQuality(results[0].quality) ? ` · ${t(`studio_quality_${results[0].quality}`)}` : ""}</span>
+                {isImageQuality(results[0].quality) && <span className="chip">{t(`studio_quality_${results[0].quality}`)}</span>}
               </div>
 
               {results[0].status === "done" && !isReal(results[0]) && (

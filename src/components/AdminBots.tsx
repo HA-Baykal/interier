@@ -60,6 +60,7 @@ const FIELDS: { group: string; icon: string; items: Field[] }[] = [
     items: [
       { key: "telegram_bot_token", label: "bots_tg_token", type: "password", placeholder: "123456:AA...", hint: "bots_tg_token_hint" },
       { key: "telegram_bot_username", label: "bots_tg_username", placeholder: "interier_design_bot" },
+      { key: "telegram_name", label: "bots_tg_name", placeholder: "Interier — дизайн интерьера", hint: "bots_tg_name_hint" },
       { key: "telegram_mini_app_url", label: "bots_tg_miniapp", placeholder: "https://…/app", hint: "bots_tg_miniapp_hint" },
       { key: "telegram_webhook_secret", label: "bots_tg_secret", type: "password", hint: "bots_secret_hint" },
       { key: "telegram_channel_id", label: "bots_tg_channel", placeholder: "@interier_design" },
@@ -175,6 +176,56 @@ export default function AdminBots() {
     }
   }
 
+  async function diagVk() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch("/api/admin/vk?action=diagnose", { headers: authHeaders() });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.ok) {
+        setErr(String(d.error || t("common_error")));
+        return;
+      }
+      const ours = d.ours;
+      const msgNew = d.settings ? String((d.settings as any).message_new ?? "?") : "—";
+      if (!ours) {
+        setErr(`${t("bots_vk_diag_no_server")} ${d.ourUrl}`);
+      } else {
+        setMsg(`${t("bots_vk_diag_ok")} ${t("bots_vk_diag_state")}: ${ours.state || "?"}; message_new=${msgNew}`);
+      }
+    } catch {
+      setErr(t("common_error"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function findVk() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch("/api/admin/vk?action=groups", { headers: authHeaders() });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.ok) {
+        setErr(String(d.error || t("common_error")));
+        return;
+      }
+      const groups: { id: string; name: string }[] = d.groups || [];
+      if (groups.length === 1) {
+        set("vk_group_id", groups[0].id);
+        setMsg(t("bots_vk_found", { name: groups[0].name, id: groups[0].id }));
+      } else if (groups.length > 1) {
+        setMsg(t("bots_vk_many", { list: groups.map((g) => `${g.name}=${g.id}`).join(", ") }));
+      } else {
+        setErr(t("admin_bots_not_connected"));
+      }
+    } catch {
+      setErr(t("common_error"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function simulate() {
     setBusy(true);
     setErr(null);
@@ -230,6 +281,12 @@ export default function AdminBots() {
 
         {msg && <div className="ok" style={{ marginTop: 10 }}>{msg}</div>}
         {err && <div className="err" style={{ marginTop: 10 }}>{err}</div>}
+        {/* A debug door left open on production must be impossible to miss. */}
+        {data?.raw?.bots_simulator === "1" && (
+          <div className="err" style={{ marginTop: 10 }} role="alert">
+            ⚠️ {t("bots_simulator_on")}
+          </div>
+        )}
 
         {data && (
           <div className="row" style={{ flexWrap: "wrap", gap: 8, marginTop: 14 }}>
@@ -340,6 +397,24 @@ export default function AdminBots() {
               </div>
             ))}
           </div>
+          {group.group === "bots_group_vk" && (
+            <>
+              <div className="row" style={{ marginTop: 12 }}>
+                <button className="btn btn-sm btn-ghost" onClick={findVk} disabled={busy}>
+                  {t("bots_vk_find")}
+                </button>
+                <button className="btn btn-sm btn-ghost" onClick={diagVk} disabled={busy}>
+                  {t("bots_vk_diag")}
+                </button>
+              </div>
+              <details style={{ marginTop: 10 }}>
+                <summary className="small muted" style={{ cursor: "pointer" }}>{t("bots_vk_help_title")}</summary>
+                <p className="small muted" style={{ whiteSpace: "pre-line", marginTop: 8, lineHeight: 1.6 }}>
+                  {t("bots_vk_help")}
+                </p>
+              </details>
+            </>
+          )}
           <div className="row" style={{ marginTop: 14 }}>
             <button className="btn btn-primary btn-sm" onClick={save} disabled={busy}>
               {t("admin_save")}

@@ -97,7 +97,7 @@ export default function GalleryPage() {
         </div>
       )}
 
-      {active && <ImageLightbox before={active.originalUrl} after={active.resultUrl} title={`${nameOf(active)} · ${active.provider}`} onClose={() => setActive(null)} />}
+      {active && <ImageLightbox before={active.originalUrl} after={active.resultUrl} title={nameOf(active)} onClose={() => setActive(null)} />}
 
       <div style={{ textAlign: "center", marginTop: 30 }}>
         <Link href="/studio" className="btn btn-primary">

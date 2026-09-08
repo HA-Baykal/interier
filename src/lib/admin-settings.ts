@@ -41,6 +41,23 @@ const schema = z.object({
   vision_base_url: z.string().max(500).optional(),
   vision_api_key: z.string().max(1000).optional(),
   vision_model: z.string().max(200).optional(),
+  // Legal requisites shown on the public /offer page (required by payment providers).
+  legal_name: z.string().max(200).optional(),
+  legal_inn: z.string().max(40).optional(),
+  legal_email: z.string().max(200).optional(),
+  legal_phone: z.string().max(40).optional(),
+  // Transactional email for registration codes (admin-settable, no redeploy).
+  email_provider: z.enum(["", "resend", "brevo", "unisender", "unisender_classic"]).optional(),
+  email_from: z.string().max(200).optional(),
+  brevo_api_key: z.string().max(1000).optional(),
+  resend_api_key: z.string().max(1000).optional(),
+  unisender_api_key: z.string().max(1000).optional(),
+  unisender_base_url: z.string().max(300).optional(),
+  unisender_list_id: z.string().max(40).optional(),
+  // Приём платежей ЮKassa (shop id + секретный ключ).
+  yookassa_shop_id: z.string().max(40).optional(),
+  yookassa_secret_key: z.string().max(1000).optional(),
+  yookassa_api_url: z.string().max(300).optional(),
 });
 
 export function adminSettingsView(d: DbShape) {
@@ -81,6 +98,30 @@ export function adminSettingsView(d: DbShape) {
     // to a browser.
     vision_api_key: "",
     vision_model: values.vision_model ?? "",
+    legal_name: values.legal_name ?? "",
+    legal_inn: values.legal_inn ?? "",
+    legal_email: values.legal_email ?? "",
+    legal_phone: values.legal_phone ?? "",
+    email_provider: values.email_provider || "",
+    email_from: values.email_from || "",
+    // Write-only keys: a saved key is never sent to a browser.
+    brevo_api_key: "",
+    resend_api_key: "",
+    unisender_api_key: "",
+    unisender_base_url: values.unisender_base_url || "",
+    unisender_list_id: values.unisender_list_id || "",
+    yookassa_shop_id: values.yookassa_shop_id || "",
+    // Секретный ключ write-only: никогда не отдаётся в браузер.
+    yookassa_secret_key: "",
+    yookassa_api_url: values.yookassa_api_url || "",
+    payments_configured: !!(
+      (values.yookassa_shop_id && values.yookassa_secret_key) ||
+      (process.env.YOOKASSA_SHOP_ID && process.env.YOOKASSA_SECRET_KEY)
+    ),
+    email_configured: !!(
+      values.brevo_api_key || values.resend_api_key || values.unisender_api_key ||
+      process.env.BREVO_API_KEY || process.env.RESEND_API_KEY || process.env.UNISENDER_API_KEY
+    ),
   };
 }
 
@@ -96,6 +137,10 @@ export async function updateAdminSettings(body: unknown) {
   // Empty password input means "keep current key / use env", not "erase".
   if (!updates.compatible_api_key) delete updates.compatible_api_key;
   if (!updates.vision_api_key) delete updates.vision_api_key;
+  if (!updates.brevo_api_key) delete updates.brevo_api_key;
+  if (!updates.resend_api_key) delete updates.resend_api_key;
+  if (!updates.unisender_api_key) delete updates.unisender_api_key;
+  if (!updates.yookassa_secret_key) delete updates.yookassa_secret_key;
   if (updates.vision_api_key) updates.vision_provider = "custom";
   if (updates.compatible_api_key) updates.generation_mode = "compatible";
   if (updates.generation_mode) updates.generation_mode_explicit = "1";

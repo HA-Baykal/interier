@@ -59,6 +59,9 @@ export type User = {
   verifiedIdentities?: { provider: "telegram" | "vk" | "max"; subject: string; verifiedAt: number }[];
   identityVerifiedAt?: number | null;
   identityVerifiedBy?: "email" | "telegram" | "vk" | "max" | null;
+  /** One-time code emailed at registration; cleared once the owner confirms it. */
+  emailConfirmCode?: string | null;
+  emailConfirmExpires?: number | null;
 };
 
 export type BotPlatform = "telegram" | "vk" | "max";
@@ -259,6 +262,18 @@ export type Setting = {
   value: string;
 };
 
+export type Payment = {
+  id: string;
+  /** YooKassa payment id (object.id in the webhook). */
+  yookassaId: string;
+  userId: string;
+  packageId: string;
+  amountRub: number;
+  credits: number;
+  status: "pending" | "paid" | "failed";
+  createdAt: number;
+};
+
 export type DbShape = {
   users: User[];
   sessions: Session[];
@@ -270,4 +285,5 @@ export type DbShape = {
   settings: Setting[];
   botChats: BotChat[];
   botLinks: BotLinkToken[];
+  payments: Payment[];
 };

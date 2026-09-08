@@ -190,6 +190,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   admin_telegram_id: "",
   telegram_bot_token: "",
   telegram_bot_username: "",
+  telegram_name: "", // display name pushed to Telegram via setMyName
   telegram_mini_app_url: "",
   telegram_webhook_secret: "",
   vk_group_id: "",

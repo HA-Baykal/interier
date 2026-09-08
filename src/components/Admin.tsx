@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useLocale } from "./locale-context";
 import { authHeaders } from "@/lib/client-auth";
-import { ClientPackage, ClientStyle } from "./types";
+import { ClientStyle } from "./types";
 import ModelLab from "./ModelLab";
 import GlobalModelSettings from "./GlobalModelSettings";
 import TelegramSetup from "./TelegramSetup";
@@ -26,6 +26,22 @@ type Settings = {
   active_profile?: string | null;
   compatible_configured: boolean;
   compatible_key_source?: string;
+  legal_name?: string;
+  legal_inn?: string;
+  legal_email?: string;
+  legal_phone?: string;
+  email_provider?: string;
+  email_from?: string;
+  brevo_api_key?: string;
+  resend_api_key?: string;
+  unisender_api_key?: string;
+  unisender_base_url?: string;
+  unisender_list_id?: string;
+  email_configured?: boolean;
+  yookassa_shop_id?: string;
+  yookassa_secret_key?: string;
+  yookassa_api_url?: string;
+  payments_configured?: boolean;
 };
 
 type Env = { hasReplicate: boolean; hasOpenAI: boolean; hasTogether: boolean };
@@ -36,13 +52,11 @@ export default function Admin({
   stats,
   settings,
   styles,
-  packages,
   env,
 }: {
   stats: Stats;
   settings: Settings;
   styles: ClientStyle[];
-  packages: ClientPackage[];
   env: Env;
 }) {
   const { t, locale } = useLocale();
@@ -53,6 +67,27 @@ export default function Admin({
   const [saving, setSaving] = useState(false);
   const [probing, setProbing] = useState(false);
   const [diagnostics, setDiagnostics] = useState<string | null>(null);
+  const [verifyEmail, setVerifyEmail] = useState("");
+  const [verifyMsg, setVerifyMsg] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+
+  async function verifyBuyer() {
+    setVerifying(true);
+    setVerifyMsg(null);
+    try {
+      const res = await fetch("/api/admin/verify-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: verifyEmail.trim() }),
+      });
+      const d = await res.json().catch(() => ({}));
+      setVerifyMsg(res.ok ? "Готово — покупатель подтверждён ✓" : (d.error === "user_not_found" ? "Аккаунт с такой почтой не найден" : "Не получилось"));
+    } catch {
+      setVerifyMsg("Не получилось");
+    } finally {
+      setVerifying(false);
+    }
+  }
 
   function field(key: keyof Settings) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -117,21 +152,6 @@ export default function Admin({
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ slug, nameRu, nameEn, descRu, descEn }),
-    });
-    if (res.ok) router.refresh();
-  }
-
-  async function addPackage() {
-    const slug = prompt("Slug (e.g. premium)") || "";
-    if (!slug) return;
-    const nameRu = prompt("Название (RU)") || slug;
-    const nameEn = prompt("Name (EN)") || slug;
-    const credits = Number(prompt("Кредиты (генераций)") || "0");
-    const price = Number(prompt("Цена (₽)") || "0");
-    const res = await fetch("/api/admin/packages", {
-      method: "POST",
-      headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ slug, nameRu, nameEn, credits, price }),
     });
     if (res.ok) router.refresh();
   }
@@ -249,6 +269,114 @@ export default function Admin({
           </div>
         </div>
 
+        <div className="panel mt">
+          <h3 style={{ fontSize: 16 }}>🧾 Реквизиты для оферты и платежей</h3>
+          <p className="small muted" style={{ marginTop: 6 }}>Эти данные выводятся на публичной странице /offer — она нужна для подключения ЮKassa и других платёжных систем.</p>
+          <div className="row" style={{ flexWrap: "wrap", gap: 16, marginTop: 10 }}>
+            <div className="field" style={{ flex: 2, minWidth: 240 }}>
+              <label>ФИО / статус (напр. «ИП Иванов И. И.» или «Самозанятый …»)</label>
+              <input className="input" value={form.legal_name || ""} onChange={field("legal_name")} />
+            </div>
+            <div className="field" style={{ flex: 1, minWidth: 160 }}>
+              <label>ИНН</label>
+              <input className="input" value={form.legal_inn || ""} onChange={field("legal_inn")} />
+            </div>
+          </div>
+          <div className="row" style={{ flexWrap: "wrap", gap: 16, marginTop: 10 }}>
+            <div className="field" style={{ flex: 1, minWidth: 200 }}>
+              <label>E-mail для связи</label>
+              <input className="input" value={form.legal_email || ""} onChange={field("legal_email")} />
+            </div>
+            <div className="field" style={{ flex: 1, minWidth: 200 }}>
+              <label>Телефон</label>
+              <input className="input" value={form.legal_phone || ""} onChange={field("legal_phone")} />
+            </div>
+          </div>
+        </div>
+
+        <div className="panel mt">
+          <h3 style={{ fontSize: 16 }}>✉️ Отправка писем (код подтверждения)</h3>
+          <p className="small muted" style={{ marginTop: 6 }}>
+            Письма с 6-значным кодом при регистрации. Выберите провайдера, вставьте <b>API-ключ</b> (для Brevo — из вкладки «API keys &amp; MCP», это не SMTP-ключ; для Unisender Go — из «Настройки → API» в кабинете go1/go2; нужен подтверждённый домен-отправитель) и укажите проверенный у провайдера адрес отправителя. {form.email_configured ? "Сейчас: настроено ✓" : "Сейчас: не настроено — код не отправляется."}
+          </p>
+          <div className="row" style={{ flexWrap: "wrap", gap: 16, marginTop: 10 }}>
+            <div className="field" style={{ flex: 1, minWidth: 180 }}>
+              <label>Провайдер</label>
+              <select className="input" value={form.email_provider || ""} onChange={field("email_provider")}>
+                <option value="">— не выбран —</option>
+                <option value="unisender">Unisender Go (go1/go2 — РФ)</option>
+                <option value="unisender_classic">Unisender классический (app.unisender.com)</option>
+                <option value="brevo">Brevo</option>
+                <option value="resend">Resend</option>
+              </select>
+            </div>
+            <div className="field" style={{ flex: 2, minWidth: 240 }}>
+              <label>Адрес отправителя (проверенный у провайдера)</label>
+              <input className="input" placeholder="baykal.presents@gmail.com" value={form.email_from || ""} onChange={field("email_from")} />
+            </div>
+          </div>
+          <div className="row" style={{ flexWrap: "wrap", gap: 16, marginTop: 10 }}>
+            <div className="field" style={{ flex: 1, minWidth: 260 }}>
+              <label>Unisender Go API-ключ</label>
+              <input className="input" type="password" autoComplete="off" value={form.unisender_api_key || ""} onChange={field("unisender_api_key")} />
+            </div>
+            <div className="field" style={{ flex: 1, minWidth: 260 }}>
+              <label>Unisender Go: адрес API (по хосту кабинета)</label>
+              <input className="input" placeholder="https://go2.unisender.ru/ru/transactional/api/v1" value={form.unisender_base_url || ""} onChange={field("unisender_base_url")} />
+            </div>
+            <div className="field" style={{ flex: 1, minWidth: 260 }}>
+              <label>Unisender классический: ID списка</label>
+              <input className="input" placeholder="напр. 2654321" value={form.unisender_list_id || ""} onChange={field("unisender_list_id")} />
+            </div>
+            <div className="field" style={{ flex: 1, minWidth: 260 }}>
+              <label>Brevo API-ключ (xkeysib-…)</label>
+              <input className="input" type="password" autoComplete="off" value={form.brevo_api_key || ""} onChange={field("brevo_api_key")} />
+            </div>
+            <div className="field" style={{ flex: 1, minWidth: 260 }}>
+              <label>Resend API-ключ (re_…)</label>
+              <input className="input" type="password" autoComplete="off" value={form.resend_api_key || ""} onChange={field("resend_api_key")} />
+            </div>
+          </div>
+        </div>
+
+        <div className="panel mt">
+          <h3 style={{ fontSize: 16 }}>✅ Подтвердить покупателя вручную</h3>
+          <p className="small muted" style={{ marginTop: 6 }}>
+            Если покупатель (или модератор платёжной системы) не получает код на почту — введите его e-mail и нажмите кнопку. Аккаунт станет подтверждённым, и вход по логину/паролю будет работать без кода.
+          </p>
+          <div className="row" style={{ flexWrap: "wrap", gap: 12, marginTop: 10, alignItems: "flex-end" }}>
+            <div className="field" style={{ flex: 2, minWidth: 240 }}>
+              <label>E-mail покупателя</label>
+              <input className="input" type="email" placeholder="buyer@example.com" value={verifyEmail} onChange={(e) => setVerifyEmail(e.target.value)} />
+            </div>
+            <button className="btn btn-primary" onClick={verifyBuyer} disabled={verifying || !verifyEmail.trim()}>{verifying ? "…" : "Подтвердить"}</button>
+            {verifyMsg && <span className="ok" role="status">{verifyMsg}</span>}
+          </div>
+        </div>
+
+        <div className="panel mt">
+          <h3 style={{ fontSize: 16 }}>💳 Приём платежей (ЮKassa)</h3>
+          <p className="small muted" style={{ marginTop: 6 }}>
+            Данные из личного кабинета ЮKassa → «Интеграции» → «HTTP API». После сохранения кнопка «Купить» на тарифах становится активной. Вебхук в ЮKassa укажите: <code>/api/payments/webhook</code>. {form.payments_configured ? "Сейчас: настроено ✓" : "Сейчас: не настроено — кнопка «Купить (скоро)»."}
+          </p>
+          <div className="row" style={{ flexWrap: "wrap", gap: 16, marginTop: 10 }}>
+            <div className="field" style={{ flex: 1, minWidth: 200 }}>
+              <label>ID магазина (shopId)</label>
+              <input className="input" placeholder="напр. 123456" value={form.yookassa_shop_id || ""} onChange={field("yookassa_shop_id")} />
+            </div>
+            <div className="field" style={{ flex: 2, minWidth: 260 }}>
+              <label>Секретный ключ (secretKey)</label>
+              <input className="input" type="password" autoComplete="off" value={form.yookassa_secret_key || ""} onChange={field("yookassa_secret_key")} />
+            </div>
+          </div>
+          <div className="row" style={{ flexWrap: "wrap", gap: 16, marginTop: 10 }}>
+            <div className="field" style={{ flex: 1, minWidth: 320 }}>
+              <label>Адрес API (для тестового магазина: https://api.test.yookassa.ru/v3)</label>
+              <input className="input" placeholder="https://api.yookassa.ru/v3 (по умолчанию)" value={form.yookassa_api_url || ""} onChange={field("yookassa_api_url")} />
+            </div>
+          </div>
+        </div>
+
         <div className="row" style={{ marginTop: 16 }}>
           <button className="btn btn-primary" onClick={saveSettings} disabled={saving}>{saving ? "Сохраняем…" : t("admin_save")}</button>
           {msg && <span className="ok" role="status">{msg}</span>}
@@ -290,24 +418,6 @@ export default function Admin({
                 {s.active ? "Вкл" : "Выкл"}
               </button>
               <button className="btn btn-sm btn-danger" onClick={() => delStyle(s.id)}>✕</button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Packages */}
-      <div className="panel mt">
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <h2 style={{ fontSize: 19 }}>{t("admin_packages")}</h2>
-          <button className="btn btn-sm" onClick={addPackage}>+ {t("admin_add_style")}</button>
-        </div>
-        <div className="mt">
-          {packages.map((p) => (
-            <div key={p.id} className="hist-item">
-              <div className="grow">
-                <div style={{ fontWeight: 600 }}>{locale === "ru" ? p.nameRu : p.nameEn}</div>
-                <div className="small muted">{p.credits} {t("credits_label")} · {p.price} ₽</div>
-              </div>
             </div>
           ))}
         </div>

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ensureBootSafe } from "@/lib/boot";
 import { getSetting, getSettingBool } from "@/lib/config";
 import { vkConfig } from "@/lib/bots/config";
-import { normalizeVkUpdate, verifyVkSignature } from "@/lib/bots/vk";
+import { normalizeVkUpdate, verifyVkSignature, vkSetCallbackServer } from "@/lib/bots/vk";
 import { dispatchAndFinish } from "@/lib/bots/dispatch";
 import { getChat } from "@/lib/bots/store";
 
@@ -29,6 +29,17 @@ export async function POST(req: NextRequest) {
 
   if (body?.type === "confirmation") {
     const token = (await getSetting("vk_confirmation_token")) || "";
+    // Self-heal: the moment VK confirms our address, make sure the Interier
+    // server has «incoming message» enabled — otherwise the owner confirms the
+    // server but never receives events and sees «bot does not answer».
+    if (token) {
+      const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
+      try {
+        await vkSetCallbackServer(`https://${host}/api/bots/vk/webhook`);
+      } catch {
+        /* confirmation must not fail because of the self-heal */
+      }
+    }
     return new NextResponse(token || "error", { headers: { "Content-Type": "text/plain" } });
   }
 

@@ -123,6 +123,13 @@ export async function handleBotUpdate(inbound: BotInbound, hostHint?: string | n
       case "/new":
       case "/design":
         return designFlow(ctx);
+      // Advertised by setMyCommands: they must not fall through to
+      // «не понимаю», otherwise the bot looks half-built in the menu.
+      case "/edit":
+        return actionFlow(ctx, ACTION.ASK_INSTRUCTION);
+      case "/shop":
+      case "/items":
+        return actionFlow(ctx, ACTION.SHOW_SHOPPING);
       case "/admin":
         if (!ctx.isAdmin) return { messages: [{ text: tr(ctx.locale, "bot_not_admin") }, await menu(ctx)] };
         return { messages: [await adminMenuMessage(ctx)] };
@@ -410,6 +417,32 @@ async function actionFlow(ctx: Ctx, action: string): Promise<BotReply> {
       const gen = await findGeneration(ctx, arg);
       if (!gen) return { messages: [{ text: tr(locale, "bot_no_design") }] };
       return { messages: [await shoppingMessage(ctx, gen)] };
+    }
+
+    case ACTION.SHOW_ITEM: {
+      const gen = await findGeneration(ctx, null);
+      if (!gen) return { messages: [{ text: tr(locale, "bot_no_design") }] };
+      return { messages: [await itemMessage(ctx, gen, arg)] };
+    }
+
+    // A replacement is a real generation, so it is always confirmed first: the
+    // price is stated before the credit is spent, and cancelling costs nothing.
+    case ACTION.ASK_REPLACE: {
+      const gen = await findGeneration(ctx, null);
+      const item = gen?.shopping?.items.find((i) => i.id === arg);
+      if (!gen || !item) return { messages: [{ text: tr(locale, "bot_items_none") }] };
+      const name = locale === "ru" ? item.name : item.nameEn || item.name;
+      return {
+        messages: [
+          {
+            text: tr(locale, "bot_replace_warn", { name, n: ctx.user?.credits ?? 0 }),
+            buttons: clampKeyboard([
+              [{ kind: "callback", text: tr(locale, "bot_replace_yes"), action: `${ACTION.EDIT_ITEM}:${item.id}` } as BotButton],
+              [{ kind: "callback", text: tr(locale, "common_cancel"), action: `${ACTION.SHOW_ITEM}:${item.id}` } as BotButton],
+            ]),
+          },
+        ],
+      };
     }
 
     case ACTION.REFRESH_SHOP: {
@@ -851,6 +884,25 @@ async function editFlow(ctx: Ctx, generationId: string, instruction: string, for
   };
 }
 
+/**
+ * A design that arrives without its details looks broken in the chat, so if the
+ * automatic list was switched off (or its detection failed) we build it once
+ * here — heuristics are free and instant, the vision pass is one extra call.
+ */
+async function ensureShopping(payload: GenPayload) {
+  if (payload.shopping?.items.length) return payload.shopping;
+  const settings = await shoppingSettings();
+  if (!settings.enabled) return payload.shopping;
+  try {
+    await regenerateShopping(payload.id);
+    const fresh = (await db()).generations.find((g) => g.id === payload.id);
+    return fresh?.shopping ?? payload.shopping;
+  } catch (e) {
+    console.warn("[bots] shopping fallback failed:", e instanceof Error ? e.message : e);
+    return payload.shopping;
+  }
+}
+
 async function payloadMessages(ctx: Ctx, payload: GenPayload): Promise<BotOutbound[]> {
   const { locale } = ctx;
   const base = await publicBaseUrl(ctx.host);
@@ -864,6 +916,7 @@ async function payloadMessages(ctx: Ctx, payload: GenPayload): Promise<BotOutbou
       ? tr(locale, "bot_done_edit", { list: changed || "—" })
       : tr(locale, "bot_done_design", { style: payload.styleName[locale] || payload.styleName.ru });
 
+  const shopping = await ensureShopping(payload);
   const gen: Generation = {
     id: payload.id,
     userId: ctx.user?.id || "",
@@ -877,7 +930,7 @@ async function payloadMessages(ctx: Ctx, payload: GenPayload): Promise<BotOutbou
     provider: payload.provider,
     createdAt: payload.createdAt,
     published: false,
-    shopping: payload.shopping,
+    shopping,
     kind: payload.kind,
     instruction: payload.instruction,
     changedCategories: payload.changedCategories,
@@ -910,20 +963,25 @@ async function shoppingMessage(ctx: Ctx, gen: Generation): Promise<BotOutbound> 
     };
   }
 
-  const rows: (BotButton | null)[][] = items.slice(0, 8).map((it) => {
-    const cat = categoryById(it.category);
-    const name = (locale === "ru" ? it.name : it.nameEn || it.name).slice(0, 22);
-    const links = it.links.slice(0, 2).map(
-      (l) => ({ kind: "link", text: shortMarketplace(l.marketplace), url: l.url } as BotButton)
+  // One button per detail, two per row. The marketplace links live *behind* the
+  // detail: a tap must show where to buy it, never start a paid regeneration.
+  const rows: (BotButton | null)[][] = [];
+  const shown = items.slice(0, 8);
+  for (let i = 0; i < shown.length; i += 2) {
+    rows.push(
+      shown.slice(i, i + 2).map((it) => {
+        const cat = categoryById(it.category);
+        const name = (locale === "ru" ? it.name : it.nameEn || it.name).slice(0, 26);
+        return { kind: "callback", text: `${cat?.emoji || "🛍️"} ${name}`, action: `${ACTION.SHOW_ITEM}:${it.id}` } as BotButton;
+      })
     );
-    return [{ kind: "callback", text: `${cat?.emoji || "🛍️"} ${name}`, action: `${ACTION.EDIT_ITEM}:${it.id}` }, ...links];
-  });
+  }
 
   return {
     text: [
       `${tr(locale, "bot_shopping_title")} · ${tr(locale, "shop_count", { n: items.length })}`,
       list?.note ? `ℹ️ ${list.note}` : "",
-      tr(locale, "bot_shopping_note"),
+      tr(locale, "bot_shopping_pick"),
     ]
       .filter(Boolean)
       .join("\n"),
@@ -941,6 +999,32 @@ async function shoppingMessage(ctx: Ctx, gen: Generation): Promise<BotOutbound> 
         },
         { kind: "app", text: tr(locale, "bot_btn_app"), url: ctx.appLink },
       ],
+    ]),
+  };
+}
+
+/**
+ * One detail: where to buy it, and an explicit (charged) replace action.
+ * Reached by tapping a detail in the list — it must never spend a credit by
+ * itself, otherwise one accidental tap burns the user's subscription.
+ */
+async function itemMessage(ctx: Ctx, gen: Generation, itemId: string): Promise<BotOutbound> {
+  const { locale } = ctx;
+  const item = gen.shopping?.items.find((i) => i.id === itemId);
+  if (!item) return { text: tr(locale, "bot_items_none") };
+  const cat = categoryById(item.category);
+  const name = locale === "ru" ? item.name : item.nameEn || item.name;
+  const links: (BotButton | null)[][] = item.links.map((l) => [
+    { kind: "link", text: `${shortMarketplace(l.marketplace)} — ${tr(locale, "bot_item_open")}`, url: l.url } as BotButton,
+  ]);
+  return {
+    text: [`${cat?.emoji || "🛍️"} ${name}`, item.query ? `🔎 ${item.query}` : "", tr(locale, "bot_shopping_note")]
+      .filter(Boolean)
+      .join("\n"),
+    buttons: clampKeyboard([
+      ...links,
+      [{ kind: "callback", text: `✏️ ${tr(locale, "bot_item_replace")}`, action: `${ACTION.ASK_REPLACE}:${item.id}` } as BotButton],
+      [{ kind: "callback", text: tr(locale, "bot_back_to_list"), action: ACTION.SHOW_SHOPPING } as BotButton],
     ]),
   };
 }

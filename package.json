@@ -15,6 +15,9 @@
     "doctor": "node scripts/doctor.mjs"
   },
   "dependencies": {
+    "@ton/core": "^0.63.1",
+    "@tonconnect/sdk": "^4.0.2",
+    "@tonconnect/ui": "^3.0.2",
     "@upstash/redis": "^1.38.4",
     "@vercel/blob": "^2.8.0",
     "bcryptjs": "^2.4.3",

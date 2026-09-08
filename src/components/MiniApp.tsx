@@ -17,6 +17,7 @@ import { authHeaders, saveToken, getToken, clearToken } from "@/lib/client-auth"
 import { useLocale } from "./locale-context";
 import DesignItems from "./DesignItems";
 import ImageComparison from "./ImageComparison";
+import TonPayButton from "./TonPayButton";
 import { downscaleImage } from "@/lib/client-image";
 import { ClientStyle, ClientUser } from "./types";
 import type { DesignItem, ShoppingList } from "@/lib/types";
@@ -684,6 +685,7 @@ export default function MiniApp({
                     <button className="btn btn-primary btn-sm" disabled={payBusy === p.id + ":stars"} onClick={() => buyStars(p.id)}>
                       {payBusy === p.id + ":stars" ? t("common_loading") : `⭐ ${t("pay_stars")}`}
                     </button>
+                    <TonPayButton packageId={p.id} onPaid={() => { refreshMe(); setNotice(t("pay_stars_done")); setTimeout(() => setNotice(null), 3000); }} />
                     <button className="btn btn-ghost btn-sm" disabled={payBusy === p.id + ":card"} onClick={() => buyCard(p.id)}>
                       {payBusy === p.id + ":card" ? t("common_loading") : `💳 ${t("pay_sbp")}`}
                     </button>

@@ -43,6 +43,10 @@ type Settings = {
   yookassa_api_url?: string;
   payments_configured?: boolean;
   stars_per_rub?: string;
+  ton_address?: string;
+  ton_api_key?: string;
+  ton_api_base?: string;
+  ton_per_rub?: string;
 };
 
 type Env = { hasReplicate: boolean; hasOpenAI: boolean; hasTogether: boolean };
@@ -382,6 +386,29 @@ export default function Admin({
           </div>
           <p className="small muted" style={{ marginTop: 6 }}>
             Оплата Telegram Stars работает внутри Mini App без дополнительных ключей — нужен только подключённый бот. Цена пакета в Звёздах = цена в ₽ × этот курс (округляется, минимум 1).
+          </p>
+          <div className="row" style={{ flexWrap: "wrap", gap: 16, marginTop: 10 }}>
+            <div className="field" style={{ flex: 2, minWidth: 260 }}>
+              <label>💎 TON: адрес-получатель (ваш кошелёк)</label>
+              <input className="input" placeholder="UQ... или 0Q..." value={form.ton_address || ""} onChange={field("ton_address")} />
+            </div>
+            <div className="field" style={{ flex: 1, minWidth: 200 }}>
+              <label>💎 TON за 1 ₽ (курс)</label>
+              <input className="input" type="number" min="0.000001" step="0.0001" placeholder="0.01" value={form.ton_per_rub || ""} onChange={field("ton_per_rub")} />
+            </div>
+          </div>
+          <div className="row" style={{ flexWrap: "wrap", gap: 16, marginTop: 10 }}>
+            <div className="field" style={{ flex: 1, minWidth: 260 }}>
+              <label>TON API-ключ (tonapi.io, для проверки перевода)</label>
+              <input className="input" type="password" autoComplete="off" value={form.ton_api_key || ""} onChange={field("ton_api_key")} />
+            </div>
+            <div className="field" style={{ flex: 1, minWidth: 260 }}>
+              <label>TON API-адрес (по умолчанию https://tonapi.io)</label>
+              <input className="input" placeholder="https://tonapi.io" value={form.ton_api_base || ""} onChange={field("ton_api_base")} />
+            </div>
+          </div>
+          <p className="small muted" style={{ marginTop: 6 }}>
+            TON Connect: покупатель подключает кошелёк в приложении и переводит TON на этот адрес с уникальным комментарием; перевод проверяется через TON API и генерации начисляются автоматически.
           </p>
         </div>
 

@@ -60,6 +60,11 @@ const schema = z.object({
   yookassa_api_url: z.string().max(300).optional(),
   // Курс Telegram Stars: сколько Звёзд стоит 1 ₽ (десятичное число).
   stars_per_rub: z.string().regex(/^\d{1,5}(\.\d{1,2})?$/).optional(),
+  // Приём TON (TON Connect): адрес-получатель, ключ TON API и курс.
+  ton_address: z.string().max(200).optional(),
+  ton_api_key: z.string().max(1000).optional(),
+  ton_api_base: z.string().max(300).optional(),
+  ton_per_rub: z.string().regex(/^\d{1,5}(\.\d{1,6})?$/).optional(),
 });
 
 export function adminSettingsView(d: DbShape) {
@@ -117,6 +122,11 @@ export function adminSettingsView(d: DbShape) {
     yookassa_secret_key: "",
     yookassa_api_url: values.yookassa_api_url || "",
     stars_per_rub: values.stars_per_rub || "1",
+    ton_address: values.ton_address || "",
+    // Ключ TON API write-only: не отдаётся в браузер.
+    ton_api_key: "",
+    ton_api_base: values.ton_api_base || "",
+    ton_per_rub: values.ton_per_rub || "0.01",
     payments_configured: !!(
       (values.yookassa_shop_id && values.yookassa_secret_key) ||
       (process.env.YOOKASSA_SHOP_ID && process.env.YOOKASSA_SECRET_KEY)
@@ -144,6 +154,7 @@ export async function updateAdminSettings(body: unknown) {
   if (!updates.resend_api_key) delete updates.resend_api_key;
   if (!updates.unisender_api_key) delete updates.unisender_api_key;
   if (!updates.yookassa_secret_key) delete updates.yookassa_secret_key;
+  if (!updates.ton_api_key) delete updates.ton_api_key;
   if (updates.vision_api_key) updates.vision_provider = "custom";
   if (updates.compatible_api_key) updates.generation_mode = "compatible";
   if (updates.generation_mode) updates.generation_mode_explicit = "1";

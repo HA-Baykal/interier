@@ -114,7 +114,7 @@ test("the full login requires bot approval AND this browser's polling secret; re
   assert.equal(result.status, "authenticated");
   if (result.status !== "authenticated") throw new Error("Expected authentication");
   const user = await auth.getUserByToken(result.token);
-  assert.ok(user); assert.equal(user.isAdmin, false); assert.equal(user.email, null); assert.equal(user.credits, 0); assert.equal(user.trialUsed, false);
+  assert.ok(user); assert.equal(user.isAdmin, false); assert.equal(user.email, null); assert.equal(user.credits, 1); assert.equal(user.trialUsed, false);
   assert.equal(user.identityVerifiedBy, "telegram");
   assert.deepEqual(user.verifiedIdentities?.map(identity => [identity.provider, identity.subject]), [["telegram", String(person.id)]]);
   assert.equal(auth.verifyPassword("anything", user.passwordHash), false);
@@ -165,7 +165,7 @@ test("explicit linking preserves the administrator's ID, balance and history; la
   await assert.rejects(login.pollTelegramLogin(challenge), /аккаунт/);
   assert.equal((await login.pollTelegramLogin({ ...challenge, owner })).status, "linked");
   assert.equal((await store.db()).users.length, 1);
-  assert.equal((await store.db()).users[0].credits, TEST_USER.credits);
+  assert.equal((await store.db()).users[0].credits, TEST_USER.credits + 1);
   const next = await login.startTelegramLogin({ purpose: "login", clientBucket: "test-ip" });
   await confirm(next.id);
   const result = await login.pollTelegramLogin(next);

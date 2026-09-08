@@ -9,7 +9,6 @@ import { getGenerationSettings, validateCompatibleConfig } from "@/lib/generatio
 import { RequestError, safeErrorMessage } from "@/lib/errors";
 import { assertDurableDatabase, assertDurableUploads } from "@/lib/storage-config";
 import type { Generation } from "@/lib/types";
-import { assertIdentityVerified } from "@/lib/identity";
 import { assertSameOrigin } from "@/lib/request-origin";
 import { enforceRateLimit } from "@/lib/security-store";
 import { assertFreeImageBudget } from "@/lib/generation/free-quota";
@@ -43,7 +42,6 @@ export async function POST(req: NextRequest) {
     assertDurableUploads();
     const user = await requireUser(req);
     if (!user.isAdmin) await enforceRateLimit("generate-user", user.id, 3, 60_000);
-    assertIdentityVerified(user);
     const form = await req.formData().catch(() => null);
     const file = form?.get("file");
     if (!(file instanceof File)) throw new RequestError("file_required", "Выберите фото комнаты.");
@@ -103,7 +101,6 @@ export async function POST(req: NextRequest) {
     const { generations, consumed } = await mutate((d) => {
       const current = d.users.find((u) => u.id === user.id);
       if (!current) throw new AuthError("NOT_AUTHENTICATED");
-      assertIdentityVerified(current);
       if ((testProfile !== undefined || quality !== undefined) && current.isAdmin !== true) throw new RequestError("test_profile_forbidden", "Тестирование доступно только администратору.", 403);
       assertFreeImageBudget(d, current, targetStyles.length);
       let consumed: Generation["mode"] = "unlimited";

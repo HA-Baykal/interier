@@ -136,25 +136,10 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
         </div>
       </div>
 
-      {user.email && !user.verified && (
+      {!user.verified && (
         <div className="panel mt">
-          <h2 style={{ fontSize: 19 }}>✉️ {t("email_verify_title")}</h2>
-          <p className="small muted mt">{t("email_verify_hint", { email: user.email })}</p>
-          <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-            <input
-              className="input"
-              style={{ maxWidth: 160 }}
-              inputMode="numeric"
-              maxLength={6}
-              placeholder={t("email_code_ph")}
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-            />
-            <button className="btn btn-primary" onClick={verifyEmail}>{t("email_verify_btn")}</button>
-            <button className="btn btn-ghost" onClick={resendCode}>{t("email_resend")}</button>
-          </div>
-          {emailMsg && <p className="ok small mt">{emailMsg}</p>}
-          {emailErr && <p className="err small mt">{emailErr}</p>}
+          <h2 style={{ fontSize: 19 }}>🎁 {t("tg_bonus_title")}</h2>
+          <p className="small muted mt">{t("tg_bonus_hint")}</p>
         </div>
       )}
 

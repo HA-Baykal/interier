@@ -67,7 +67,8 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
   user: ClientUser; styles: ClientStyle[]; aiConfigured: boolean; isDemo: boolean; initialUnlimited: boolean; activeProfileLabel: string; activeProfileEstimate?: number;
 }) {
   const { t, locale } = useLocale();
-  const verified = user.isAdmin || user.verified === true;
+  // Подтверждение почты больше не требуется; вход/регистрация дают доступ.
+  const verified = true;
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const camRef = useRef<HTMLInputElement>(null);

@@ -1,5 +1,6 @@
 import { createHmac, randomBytes } from "node:crypto";
-import { mutate, uid } from "../db";
+import { mutate, uid, db } from "../db";
+import { grantTelegramBonus } from "../billing";
 import { SESSION_TTL_MS, getUserByToken } from "../auth";
 import { isIdentityVerified } from "../identity";
 import { RequestError } from "../errors";
@@ -210,6 +211,12 @@ export async function pollTelegramLogin(input: { id: string; secret: string; own
       value.status = "consumed"; value.sessionToken = ticket.purpose === "login" ? token : undefined;
       return { value, expiresAt: value.expiresAt, result: undefined };
     });
+    // +1 generation for linking Telegram — one-time, idempotent via rewards table.
+    if (ticket.person) {
+      const person = ticket.person;
+      const linked = (await db()).users.find((u) => u.telegramId === Number(person.id));
+      if (linked) await grantTelegramBonus(linked, "telegram", Number(person.id), person.username ?? null);
+    }
   } catch (e) {
     try { await mutateSecurityDocument<Ticket, void>(key(input.id), current => {
       const value = active(current, cfg); value.claimUntil = 0;

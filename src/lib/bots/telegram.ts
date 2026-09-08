@@ -39,7 +39,9 @@ export async function tgSetWebhook(url: string, opts?: { dropPending?: boolean }
   try {
     const payload: Record<string, unknown> = {
       url,
-      allowed_updates: ["message", "callback_query", "inline_query", "chosen_inline_result"],
+      // `pre_checkout_query` must be delivered for Telegram Stars payments
+      // (answered within ~10 s); `successful_payment` arrives as a `message`.
+      allowed_updates: ["message", "callback_query", "pre_checkout_query", "inline_query", "chosen_inline_result"],
       drop_pending_updates: opts?.dropPending !== false,
     };
     if (cfg.webhookSecret) payload.secret_token = cfg.webhookSecret;
@@ -167,7 +169,11 @@ export async function tgApplyProfile(profile: TelegramProfile): Promise<{ applie
 export async function tgGetUpdates(offset: number | null, timeout = 25) {
   const cfg = await telegramConfig();
   if (!cfg.token) return [];
-  const payload: Record<string, unknown> = { timeout, limit: 50, allowed_updates: ["message", "callback_query"] };
+  const payload: Record<string, unknown> = {
+    timeout,
+    limit: 50,
+    allowed_updates: ["message", "callback_query", "pre_checkout_query"],
+  };
   if (offset) payload.offset = offset + 1;
   const r = await call<{ result: any[] }>(cfg.token, "getUpdates", payload);
   return r.result || [];

@@ -639,21 +639,55 @@ async function bonusMessage(ctx: Ctx): Promise<BotOutbound> {
 async function bonusClaim(ctx: Ctx, channel: "telegram" | "vk"): Promise<BotReply> {
   const { user, inbound, locale } = ctx;
   if (!user) return { messages: [{ text: tr(locale, "common_error") }] };
-  if (channel === "telegram") {
+  const isTg = channel === "telegram";
+  const channelUrl =
+    (await getSetting(isTg ? "channel_telegram_url" : "channel_vk_url")) ||
+    (isTg ? "https://t.me/interier_ai" : "https://vk.com/interier_ai");
+  const claimTag = isTg ? "tg" : "vk";
+  const channelName = isTg ? "Telegram" : "VK";
+
+  // The bonus is only granted after a REAL membership check. A bot cannot check
+  // (channel not configured / bot not an admin / token without rights) is a
+  // refusal, never a silent grant — otherwise anyone could claim +1 without
+  // subscribing, which is exactly the loophole the owner complained about.
+  let membership: boolean | null;
+  if (isTg) {
     const { verifyChannelMembership } = await import("./telegram");
-    const ok = await verifyChannelMembership(inbound.externalId);
-    // null = channel not configured / bot can't check → demo grant (site behaviour parity)
-    if (ok === false) {
-      return {
-        messages: [
-          {
-            text: `✈️ ${tr(locale, "rewards_telegram_desc")}`,
-            buttons: clampKeyboard([[{ kind: "link", text: tr(locale, "rewards_telegram_url"), url: (await getSetting("channel_telegram_url")) || "https://t.me/interier_ai" }]]),
-          },
-        ],
-      };
-    }
+    membership = await verifyChannelMembership(inbound.externalId);
+  } else {
+    const { vkIsMember } = await import("./vk");
+    membership = await vkIsMember(inbound.externalId);
   }
+  if (membership !== true) {
+    const text =
+      membership === null
+        ? tr(locale, "bot_bonus_unverifiable")
+        : tr(locale, "bot_bonus_not_member");
+    return {
+      messages: [
+        {
+          text,
+          buttons: clampKeyboard([
+            [
+              {
+                kind: "link",
+                text: isTg ? tr(locale, "rewards_telegram_url") : tr(locale, "rewards_vk_url"),
+                url: channelUrl,
+              },
+            ],
+            [
+              {
+                kind: "callback",
+                text: `🎁 ${tr(locale, "bot_bonus_claim")} · ${channelName}`,
+                action: `${ACTION.BONUS}:${claimTag}`,
+              },
+            ],
+          ]),
+        },
+      ],
+    };
+  }
+
   const num = Number(inbound.externalId);
   const res = await grantTelegramBonus(user, channel, Number.isFinite(num) ? num : null, inbound.username ?? null);
   const text = res.granted ? tr(locale, "bot_bonus_done", { n: res.credits }) : tr(locale, "bot_bonus_already");

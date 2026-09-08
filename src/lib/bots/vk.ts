@@ -90,6 +90,26 @@ export async function vkMe(): Promise<{ name: string | null; id: string | null }
   }
 }
 
+/**
+ * Real membership check for the "+1 за подписку на сообщество" bonus.
+ * Uses `groups.isMember` with the community token and group id from the
+ * admin panel. Returns null when the group/token is not configured or the
+ * token lacks the right to check — callers must then fail closed (no grant).
+ */
+export async function vkIsMember(userId: string | number): Promise<boolean | null> {
+  const cfg = await vkConfig();
+  if (!cfg.token || !cfg.groupId) return null;
+  try {
+    const r = await api<{ response: { member?: number } }>("groups.isMember", {
+      group_id: cfg.groupId,
+      user_id: String(userId),
+    });
+    return r.response?.member === 1;
+  } catch {
+    return null;
+  }
+}
+
 export async function vkSetCallbackServer(url: string): Promise<{ ok: boolean; error?: string; serverId?: string }> {
   const cfg = await vkConfig();
   if (!cfg.token || !cfg.groupId) return { ok: false, error: "нужны VK_ACCESS_TOKEN и VK_GROUP_ID" };

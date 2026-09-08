@@ -27,10 +27,14 @@ export async function runPollCycle(opts?: { timeoutSec?: number; host?: string |
       const offsetRaw = await getSetting("tg_poll_offset");
       const offset = offsetRaw ? Number(offsetRaw) : 0;
       const { tgGetUpdates, normalizeTelegramUpdate } = await import("./telegram");
+      const { handleTelegramPaymentUpdate } = await import("../payments-stars");
       const updates = await tgGetUpdates(offset || null, timeout);
       let maxId = offset || 0;
       for (const u of updates) {
         maxId = Math.max(maxId, Number(u.update_id || 0));
+        // Stars payments arrive as pre_checkout_query / successful_payment —
+        // handle them even when the bot runs on long polling instead of a webhook.
+        if (await handleTelegramPaymentUpdate(u)) continue;
         const inbound = await normalizeTelegramUpdate(u);
         if (inbound) await handle(inbound, opts?.host || null);
       }

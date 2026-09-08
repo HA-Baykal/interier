@@ -85,8 +85,90 @@ test("forged reward details do not mint credits, including for a verified accoun
     body: JSON.stringify({ channel: "telegram", externalId: "1234", username: "made_up" }),
   });
   const res = await rewards.POST(request);
+  // The server ignores client-supplied ids and verifies only the platform
+  // identity bound to the account; this account has none, so it is refused
+  // without minting anything.
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).error, "platform_not_linked");
+  const data = await db.db();
+  assert.equal(data.users[0].credits, 0);
+  assert.equal(data.rewards.length, 0);
+});
+
+test("a bound, verified Telegram member gets the +1 bonus exactly once", async (t) => {
+  await db.mutate((d) => {
+    const u = d.users[0];
+    u.identityVerifiedAt = 1; u.identityVerifiedBy = "email";
+    u.telegramId = 111; u.telegramUsername = "tg_user";
+    u.credits = 0;
+  });
+  await config.setSetting("telegram_bot_token", "123:abc");
+  await config.setSetting("telegram_channel_id", "@interier_channel");
+  t.mock.method(globalThis, "fetch", async (url: unknown, init?: RequestInit) => {
+    if (String(url).includes("/getChatMember")) {
+      return Response.json({ ok: true, result: { status: "member" } });
+    }
+    if (init?.method === "POST") return Response.json({ ok: true });
+    return new Response("unexpected call", { status: 500 });
+  });
+  const request = new NextRequest("https://app.example.test/api/rewards/verify", {
+    method: "POST", headers: { "Content-Type": "application/json", "x-session-token": "identity-session", origin: "https://app.example.test" },
+    body: JSON.stringify({ channel: "telegram" }),
+  });
+  const res = await rewards.POST(request);
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.granted, true);
+  assert.equal(body.credits, 1);
+  const data = await db.db();
+  assert.equal(data.users[0].credits, 1);
+  assert.equal(data.rewards.length, 1);
+  assert.equal(data.rewards[0].granted, true);
+});
+
+test("a bound account that is not a channel member is refused with no credit", async (t) => {
+  await db.mutate((d) => {
+    const u = d.users[0];
+    u.identityVerifiedAt = 1; u.identityVerifiedBy = "email";
+    u.telegramId = 111; u.telegramUsername = "tg_user";
+    u.credits = 0;
+  });
+  await config.setSetting("telegram_bot_token", "123:abc");
+  await config.setSetting("telegram_channel_id", "@interier_channel");
+  t.mock.method(globalThis, "fetch", async (url: unknown) => {
+    if (String(url).includes("/getChatMember")) {
+      return Response.json({ ok: true, result: { status: "left" } });
+    }
+    return new Response("unexpected call", { status: 500 });
+  });
+  const request = new NextRequest("https://app.example.test/api/rewards/verify", {
+    method: "POST", headers: { "Content-Type": "application/json", "x-session-token": "identity-session", origin: "https://app.example.test" },
+    body: JSON.stringify({ channel: "telegram" }),
+  });
+  const res = await rewards.POST(request);
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).error, "not_subscribed");
+  const data = await db.db();
+  assert.equal(data.users[0].credits, 0);
+  assert.equal(data.rewards.length, 0);
+});
+
+test("when the channel is not configured the reward refuses instead of demo-granting", async (t) => {
+  await db.mutate((d) => {
+    const u = d.users[0];
+    u.identityVerifiedAt = 1; u.identityVerifiedBy = "email";
+    u.telegramId = 111; u.telegramUsername = "tg_user";
+    u.credits = 0;
+  });
+  await config.setSetting("telegram_bot_token", "123:abc");
+  await config.setSetting("telegram_channel_id", "");
+  const request = new NextRequest("https://app.example.test/api/rewards/verify", {
+    method: "POST", headers: { "Content-Type": "application/json", "x-session-token": "identity-session", origin: "https://app.example.test" },
+    body: JSON.stringify({ channel: "telegram" }),
+  });
+  const res = await rewards.POST(request);
   assert.equal(res.status, 503);
-  assert.equal((await res.json()).error, "reward_verification_not_configured");
+  assert.equal((await res.json()).error, "verification_unavailable");
   const data = await db.db();
   assert.equal(data.users[0].credits, 0);
   assert.equal(data.rewards.length, 0);

@@ -407,6 +407,39 @@ export default function MiniApp({
     }
   }
 
+  /**
+   * Claim the "+1 за подписку" bonus. The server verifies the subscription
+   * through the platform API (Telegram getChatMember / VK groups.isMember)
+   * against the identity bound to the account — a bonus is never granted
+   * without a real check.
+   */
+  async function claimBonus(channel: "telegram" | "vk") {
+    try {
+      const r = await fetch("/api/rewards/verify", {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ channel }),
+      });
+      const d = await r.json().catch(() => ({}));
+      const code: string = d?.error || (d?.granted ? "granted" : "reward_unavailable");
+      const text =
+        code === "granted" || code === "already_granted"
+          ? t("rewards_connected")
+          : code === "not_subscribed"
+            ? t("rewards_not_subscribed")
+            : code === "platform_not_linked"
+              ? t("rewards_not_linked")
+              : code === "verification_unavailable"
+                ? t("rewards_unverifiable")
+                : d?.message || t("common_error");
+      setNotice(text);
+      if (code === "granted") tg()?.HapticFeedback?.notification?.("success");
+      await refreshMe();
+    } catch {
+      setNotice(t("common_error"));
+    }
+  }
+
   /* ---------------- login screen ---------------- */
   if (!user) {
     return (
@@ -745,39 +778,16 @@ export default function MiniApp({
               <div className="app-card">
                 <div style={{ fontWeight: 700 }}>{t("rewards_title")}</div>
                 <div className="small muted" style={{ marginTop: 4 }}>
-                  {t("rewards_demo_note")}
+                  {t("rewards_check_note")}
                 </div>
                 <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                   {!user.telegramGranted && (
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      onClick={async () => {
-                        const r = await fetch("/api/rewards/verify", {
-                          method: "POST",
-                          headers: { ...authHeaders(), "Content-Type": "application/json" },
-                          body: JSON.stringify({ channel: "telegram", externalId: user.telegramId ?? undefined }),
-                        });
-                        const d = await r.json().catch(() => ({}));
-                        setNotice(d?.granted ? t("rewards_connected") : t("rewards_connected"));
-                        await refreshMe();
-                      }}
-                    >
+                    <button className="btn btn-ghost btn-sm" onClick={() => void claimBonus("telegram")}>
                       ✈️ {t("rewards_connect")}
                     </button>
                   )}
                   {!user.vkGranted && (
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      onClick={async () => {
-                        const r = await fetch("/api/rewards/verify", {
-                          method: "POST",
-                          headers: { ...authHeaders(), "Content-Type": "application/json" },
-                          body: JSON.stringify({ channel: "vk", externalId: user.vkId ?? undefined }),
-                        });
-                        await r.json().catch(() => ({}));
-                        await refreshMe();
-                      }}
-                    >
+                    <button className="btn btn-ghost btn-sm" onClick={() => void claimBonus("vk")}>
                       💬 {t("rewards_connect")}
                     </button>
                   )}

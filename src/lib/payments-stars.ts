@@ -102,3 +102,51 @@ export async function fulfillStarsPayment(
   await addCredits(target.userId, target.credits);
   return { granted: true, credits: target.credits, userId: target.userId };
 }
+
+/**
+ * Handle a raw Telegram update that belongs to a Stars payment: approve the
+ * `pre_checkout_query` (must be answered within ~10 s) and grant credits on
+ * `successful_payment`. Returns true when the update was a payment update and
+ * nothing else should process it. Used by both the webhook transport and the
+ * long-polling fallback, so Stars keep working on any transport.
+ */
+export async function handleTelegramPaymentUpdate(update: unknown): Promise<boolean> {
+  const u = update as {
+    pre_checkout_query?: { id?: string };
+    message?: {
+      successful_payment?: { invoice_payload?: string; telegram_payment_charge_id?: string };
+      chat?: { id?: number | string };
+    };
+  };
+  if (u?.pre_checkout_query?.id) {
+    try {
+      await tgCall("answerPreCheckoutQuery", {
+        pre_checkout_query_id: u.pre_checkout_query.id,
+        ok: true,
+      });
+    } catch {
+      /* approving is best-effort; Telegram retries the query */
+    }
+    return true;
+  }
+  const paid = u?.message?.successful_payment;
+  if (paid) {
+    const res = await fulfillStarsPayment(
+      String(paid.invoice_payload || ""),
+      String(paid.telegram_payment_charge_id || "")
+    );
+    const chatId = u.message?.chat?.id;
+    if (chatId) {
+      const text = res.granted
+        ? `✅ Оплата прошла! Начислено генераций: ${res.credits}.`
+        : "ℹ️ Этот платёж уже учтён.";
+      try {
+        await tgCall("sendMessage", { chat_id: String(chatId), text });
+      } catch {
+        /* the credits are already granted; the receipt is cosmetic */
+      }
+    }
+    return true;
+  }
+  return false;
+}

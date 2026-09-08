@@ -22,7 +22,7 @@ export default async function HomePage() {
         <div className="container">
           <span className="hero-badge">
             <span className="dot" />
-            {t(locale, "free_gen")} · {t(locale, "pricing_testmode")}
+            {t(locale, "free_gen")}
           </span>
           <h1>{t(locale, "hero_title")}</h1>
           <p>{t(locale, "hero_subtitle")}</p>
@@ -140,9 +140,6 @@ export default async function HomePage() {
               </div>
             ))}
           </div>
-          <p className="section-sub" style={{ marginTop: 26 }}>
-            <span className="testmode-pill">🔒 {t(locale, "pricing_testmode")}</span>
-          </p>
         </div>
       </section>
 

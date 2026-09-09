@@ -270,7 +270,8 @@ export async function getSettingOrEnv(key: string, envName?: string): Promise<st
 /** Whether unlimited (test) generation mode is enabled for the current user. */
 export async function isUnlimitedMode(user?: Pick<User, "isAdmin">): Promise<boolean> {
   if ((await getSetting("test_unlimited")) !== "1") return false;
-  return user ? user.isAdmin === true : true;
+  // Fail closed: only a known administrator gets the unlimited test switch.
+  return user?.isAdmin === true;
 }
 
 export async function activeStyles(): Promise<Style[]> {

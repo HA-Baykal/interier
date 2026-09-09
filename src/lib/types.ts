@@ -276,6 +276,12 @@ export type Payment = {
   provider?: "yookassa" | "stars" | "ton";
   /** Provider-side id (Telegram charge id, TON payment id) for idempotency. */
   externalId?: string;
+  /**
+   * Expected TON amount in nanotons, fixed at invoice creation (TON only).
+   * Stored so a later change of `ton_per_rub` cannot change what a pending
+   * payment must be confirmed for.
+   */
+  expectedNano?: string;
 };
 
 export type DbShape = {

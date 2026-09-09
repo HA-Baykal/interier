@@ -49,7 +49,10 @@ export async function connectTelegram(takeOver: boolean) {
     throw new RequestError("telegram_webhook_unreachable", "Telegram не сможет открыть адрес webhook. Для защищённого Preview создайте в Vercel Protection Bypass for Automation и выполните Redeploy. Общую защиту сайта не отключайте.", 503);
   }
   await telegramCall(cfg, "setWebhook", { url: cfg.webhookUrl, secret_token: cfg.webhookSecret,
-    allowed_updates: ["message", "callback_query"], max_connections: 5, drop_pending_updates: false });
+    // This single webhook serves the login transport AND the bot application,
+    // including Telegram Stars payments: pre_checkout_query must be delivered
+    // (answered within ~10 s) or a Stars checkout would stall forever.
+    allowed_updates: ["message", "callback_query", "pre_checkout_query"], max_connections: 5, drop_pending_updates: false });
   await setSetting(CONNECTION_KEY, JSON.stringify({ fingerprint: cfg.fingerprint, username: cfg.username, origin: cfg.publicOrigin, connectedAt: Date.now() }));
   return { configured: true, connected: true, username: cfg.username, publicOrigin: cfg.publicOrigin, bypassConfigured: !!cfg.bypass };
 }

@@ -124,6 +124,37 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
   const tgGranted = user.telegramGranted;
   const vkGranted = user.vkGranted;
 
+  /** Per-channel last claim state shown inside the reward card. */
+  const [claimMsg, setClaimMsg] = useState<Record<string, { text: string; url?: string }>>({});
+
+  async function claimBonus(channel: "telegram" | "vk") {
+    const key = channel;
+    setClaimMsg((m) => ({ ...m, [key]: { text: t("common_loading") } }));
+    try {
+      const r = await fetch("/api/rewards/verify", {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ channel }),
+      });
+      const d = await r.json().catch(() => ({}));
+      const code: string = d?.error || (d?.granted ? "granted" : "reward_unavailable");
+      const text =
+        code === "granted" || code === "already_granted"
+          ? t("rewards_connected")
+          : code === "not_subscribed"
+            ? t("rewards_not_subscribed")
+            : code === "platform_not_linked"
+              ? t("rewards_not_linked")
+              : code === "verification_unavailable"
+                ? t("rewards_unverifiable")
+                : d?.message || t("common_error");
+      setClaimMsg((m) => ({ ...m, [key]: { text, url: code === "not_subscribed" && typeof d?.channelUrl === "string" ? d.channelUrl : undefined } }));
+      await reloadUser();
+    } catch {
+      setClaimMsg((m) => ({ ...m, [key]: { text: t("common_error") } }));
+    }
+  }
+
   return (
     <div className="container" style={{ paddingTop: 40, paddingBottom: 70 }}>
       <h1 style={{ fontSize: 30, fontWeight: 800 }}>{t("account_title")}</h1>
@@ -177,10 +208,9 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
       </div>
 
       {/* Rewards */}
-      <p className="small muted mt">{t("rewards_not_configured")}</p>
       <div className="panel mt">
         <h2 style={{ fontSize: 19 }}>{t("rewards_title")}</h2>
-        <p className="muted small" style={{ marginTop: 6 }}>{t("rewards_demo_note")}</p>
+        <p className="muted small" style={{ marginTop: 6 }}>{t("rewards_check_note")}</p>
         <div className="rewards-grid mt">
           <div className="reward-card">
             <h3>✈️ {t("rewards_telegram")}</h3>
@@ -188,10 +218,22 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
             {tgGranted ? (
               <span className="chip" style={{ color: "var(--success)" }}>✓ {t("rewards_connected")}</span>
             ) : (
-              <div className="row" style={{ flexWrap: "wrap" }}>
-                <button className="btn btn-ghost btn-sm" disabled title={t("rewards_not_configured")}>
+              <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+                <button className="btn btn-ghost btn-sm" onClick={() => void claimBonus("telegram")}>
                   {t("rewards_connect")}
                 </button>
+              </div>
+            )}
+            {!tgGranted && claimMsg.telegram && (
+              <div className="small muted" style={{ marginTop: 8 }} role="status">
+                {claimMsg.telegram.text}
+                {claimMsg.telegram.url && (
+                  <div style={{ marginTop: 6 }}>
+                    <a className="btn btn-primary btn-sm" href={claimMsg.telegram.url} target="_blank" rel="noreferrer">
+                      🔗 {t("rewards_subscribe_now")}
+                    </a>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -201,10 +243,22 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
             {vkGranted ? (
               <span className="chip" style={{ color: "var(--success)" }}>✓ {t("rewards_connected")}</span>
             ) : (
-              <div className="row" style={{ flexWrap: "wrap" }}>
-                <button className="btn btn-ghost btn-sm" disabled title={t("rewards_not_configured")}>
+              <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+                <button className="btn btn-ghost btn-sm" onClick={() => void claimBonus("vk")}>
                   {t("rewards_connect")}
                 </button>
+              </div>
+            )}
+            {!vkGranted && claimMsg.vk && (
+              <div className="small muted" style={{ marginTop: 8 }} role="status">
+                {claimMsg.vk.text}
+                {claimMsg.vk.url && (
+                  <div style={{ marginTop: 6 }}>
+                    <a className="btn btn-primary btn-sm" href={claimMsg.vk.url} target="_blank" rel="noreferrer">
+                      🔗 {t("rewards_subscribe_now")}
+                    </a>
+                  </div>
+                )}
               </div>
             )}
           </div>

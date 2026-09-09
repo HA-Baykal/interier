@@ -11,6 +11,7 @@
 import { mutate, uid, now } from "./db";
 import { getSetting, getSettingNumber, activePackages } from "./config";
 import { addCredits } from "./billing";
+import { Address } from "@ton/core";
 
 export type TonConfig = { address: string; apiKey: string; apiBase: string; configured: boolean };
 
@@ -62,6 +63,7 @@ export async function createTonPayment(userId: string, packageId: string): Promi
       createdAt: now(),
       provider: "ton",
       externalId: paymentId, // the memo the buyer must attach
+      expectedNano: amountNano.toString(), // freeze the amount at creation time
     });
   });
 
@@ -96,12 +98,53 @@ export async function expectedNanoFor(paymentId: string): Promise<bigint> {
   const { db } = await import("./db");
   const p = (await db()).payments.find((x) => x.id === paymentId && x.provider === "ton");
   if (!p) return 0n;
+  // The amount is frozen at invoice creation, so an admin changing `ton_per_rub`
+  // mid-flight never alters what this pending payment must confirm for.
+  if (p.expectedNano) {
+    const stored = BigInt(p.expectedNano);
+    if (stored > 0n) return stored;
+  }
+  // Fallback for payments created before expectedNano existed.
   const pack = (await activePackages()).find((x) => x.id === p.packageId);
   const rate = await tonRate();
   return tonAmountNano(pack?.price ?? p.amountRub, rate);
 }
 
 export type TonTx = { id: string; nano: bigint; comment: string };
+
+/**
+ * Compare two TON addresses regardless of representation: raw (`0:...`) and
+ * friendly (`UQ...` / `EQ...` / `kQ...` / `0Q...` all parse to the same raw).
+ * An exact-string match is a fast path; @ton/core does the normalization.
+ */
+export function sameTonAddress(a: string | null | undefined, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  try {
+    return Address.parse(a).equals(Address.parse(b));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * NanoTON amount of a TonAPI TonTransfer action. The API exposes it as an
+ * object `{ value: "123" }`; older responses carried the plain string. Returns
+ * 0n when the field is missing so the caller can refuse the event (fail closed).
+ */
+function transferNano(transfer: Record<string, unknown>): bigint {
+  const amount = transfer.amount;
+  const value =
+    amount && typeof amount === "object"
+      ? (amount as { value?: unknown }).value
+      : amount;
+  if (value === undefined || value === null) return 0n;
+  try {
+    return BigInt(String(value));
+  } catch {
+    return 0n;
+  }
+}
 
 /**
  * Look up an incoming transfer to our address whose comment contains `memo` and
@@ -117,7 +160,7 @@ export async function findTonTransfer(
   const headers: Record<string, string> = { Accept: "application/json" };
   if (cfg.apiKey) headers.Authorization = `Bearer ${cfg.apiKey}`;
   try {
-    const url = `${cfg.apiBase}/v2/blockchain/accounts/${encodeURIComponent(cfg.address)}/events?limit=50`;
+    const url = `${cfg.apiBase}/v2/blockchain/accounts/${encodeURIComponent(cfg.address)}/events?limit=100`;
     const res = await fetch(url, { headers, cache: "no-store" });
     if (!res.ok) return null;
     const data = (await res.json()) as { events?: any[] };
@@ -126,13 +169,14 @@ export async function findTonTransfer(
         if (action?.type !== "TonTransfer") continue;
         const transfer = action.TonTransfer;
         if (!transfer) continue;
-        // Only incoming: recipient must be our address.
-        const recipient = transfer.recipient?.address;
-        if (recipient && cfg.address && recipient !== cfg.address) continue;
+        // Only incoming transfers count: the recipient must be OUR address
+        // (matched by raw address, whatever spelling was configured/pasted).
+        const recipient: unknown = transfer.recipient?.address;
+        if (!sameTonAddress(recipient as string, cfg.address)) continue;
         const comment = String(transfer.comment || "");
         if (!comment.includes(memo)) continue;
-        const nano = BigInt(String(transfer.amount?.value ?? "0"));
-        if (nano < minNano) continue;
+        const nano = transferNano(transfer);
+        if (nano < minNano) continue; // underpaid is not a payment
         return { id: String(ev.event_id || ev.id || comment), nano, comment };
       }
     }
@@ -144,11 +188,14 @@ export async function findTonTransfer(
 
 /** Verify a pending TON payment on-chain and grant credits if it arrived. */
 export async function verifyTonPayment(
-  paymentId: string
+  paymentId: string,
+  ownerUserId?: string | null
 ): Promise<{ status: "pending" | "paid" | "unknown"; granted: boolean; credits: number }> {
   const { db } = await import("./db");
   const p = (await db()).payments.find((x) => x.id === paymentId && x.provider === "ton");
   if (!p) return { status: "unknown", granted: false, credits: 0 };
+  // A user may only confirm their own payment; foreign ids are not revealed.
+  if (ownerUserId && p.userId !== ownerUserId) return { status: "unknown", granted: false, credits: 0 };
   if (p.status === "paid") return { status: "paid", granted: false, credits: 0 };
 
   const minNano = await expectedNanoFor(paymentId);

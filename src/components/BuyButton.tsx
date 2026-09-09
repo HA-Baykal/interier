@@ -25,6 +25,11 @@ export default function BuyButton({ packageId, enabled }: { packageId: string; e
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d.confirmationUrl) {
+        if (res.status === 401) {
+          // Not signed in — take the buyer to the login form instead of an error.
+          window.location.href = "/login";
+          return;
+        }
         setErr(d.message ? String(d.message) : t("pay_error"));
         return;
       }

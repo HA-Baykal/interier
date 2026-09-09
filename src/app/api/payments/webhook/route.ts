@@ -22,7 +22,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "bad_signature" }, { status: 401 });
   }
 
-  const event = JSON.parse(raw || "{}");
+  let event: { type?: string; object?: { id?: string } } = {};
+  try {
+    event = JSON.parse(raw || "{}");
+  } catch {
+    // A body we cannot parse is never credited; acknowledge it so the gateway
+    // stops retrying instead of hammering the endpoint forever.
+    return NextResponse.json({ ok: true });
+  }
   const type: string = event?.type || "";
   const obj = event?.object || {};
   const yookassaId: string = obj?.id || "";

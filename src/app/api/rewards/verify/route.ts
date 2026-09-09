@@ -53,8 +53,16 @@ export async function POST(req: NextRequest) {
         membership === null
           ? "Не удалось проверить подписку: канал/сообщество не настроены, либо у бота нет прав администратора (для проверки он должен быть админом канала)."
           : "Вы ещё не подписаны на канал/сообщество. Сначала подпишитесь и попробуйте снова — без проверки бонус не начисляется.";
+      const { getSetting } = await import("@/lib/config");
+      const channelUrl =
+        (await getSetting(channel === "telegram" ? "channel_telegram_url" : "channel_vk_url")) ||
+        (channel === "telegram" ? "https://t.me/interier_ai" : "https://vk.com/interier_ai");
       return NextResponse.json(
-        { error: membership === null ? "verification_unavailable" : "not_subscribed", message },
+        {
+          error: membership === null ? "verification_unavailable" : "not_subscribed",
+          message,
+          ...(membership === null ? {} : { channelUrl }),
+        },
         { status }
       );
     }

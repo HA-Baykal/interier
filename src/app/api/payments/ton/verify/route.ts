@@ -19,6 +19,8 @@ export async function POST(req: NextRequest) {
   }
   const body = await req.json().catch(() => ({}));
   const paymentId = String((body as any)?.paymentId || "");
-  const result = await verifyTonPayment(paymentId);
+  // The caller can only poll their own payment: foreign ids resolve to "unknown".
+  const result = await verifyTonPayment(paymentId, user.id);
+  if (result.status === "unknown") return NextResponse.json({ error: "not_found" }, { status: 404 });
   return NextResponse.json({ ok: true, ...result });
 }

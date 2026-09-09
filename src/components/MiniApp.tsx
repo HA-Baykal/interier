@@ -55,7 +55,7 @@ type TgWebApp = {
   setHeaderColor?: (c: string) => void;
   setBackgroundColor?: (c: string) => void;
   openLink?: (url: string, opts?: { try_instant_view?: boolean }) => void;
-  openInvoice?: (url: string, cb?: (status: string) => void) => void;
+  openInvoice?: (url: string, cb?: (url: string, status: string) => void) => void;
   disableVerticalSwipes?: () => void;
 };
 
@@ -93,6 +93,10 @@ export default function MiniApp({
   const [compare, setCompare] = useState(false);
   /** Full referral link (built on the client: SSR has no window). */
   const [refLink, setRefLink] = useState("");
+  /** Last bonus-claim result (shown inside the rewards card on the Profile tab). */
+  const [rewardMsg, setRewardMsg] = useState<string | null>(null);
+  /** Channel link returned by the server when the user is not subscribed yet. */
+  const [rewardUrl, setRewardUrl] = useState<string | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const camRef = useRef<HTMLInputElement>(null);
@@ -383,6 +387,7 @@ export default function MiniApp({
     }
     setPayBusy(packId + ":stars");
     setError(null);
+    setNotice(null);
     try {
       const res = await fetch("/api/payments/stars/create", {
         method: "POST",
@@ -394,11 +399,22 @@ export default function MiniApp({
         setError(d.message ? String(d.message) : t("pay_error"));
         return;
       }
-      app.openInvoice(d.url, async () => {
-        // The webhook grants the credits; refresh the balance either way.
+      app.openInvoice(d.url, async (_url, status) => {
+        // The webhook grants the credits asynchronously; refresh regardless.
         await refreshMe();
-        setNotice(t("pay_stars_done"));
-        setTimeout(() => setNotice(null), 3000);
+        const s = String(status || "");
+        if (s === "paid") {
+          setNotice(t("pay_stars_done"));
+          tg()?.HapticFeedback?.notification?.("success");
+        } else if (s === "pending") {
+          setNotice(t("pay_stars_pending"));
+        } else if (s === "cancelled" || s === "failed") {
+          setError(t("pay_stars_cancelled"));
+        }
+        setTimeout(() => {
+          setNotice(null);
+          setError(null);
+        }, 3500);
       });
     } catch {
       setError(t("pay_error"));
@@ -414,6 +430,8 @@ export default function MiniApp({
    * without a real check.
    */
   async function claimBonus(channel: "telegram" | "vk") {
+    setRewardMsg(null);
+    setRewardUrl(null);
     try {
       const r = await fetch("/api/rewards/verify", {
         method: "POST",
@@ -432,11 +450,16 @@ export default function MiniApp({
               : code === "verification_unavailable"
                 ? t("rewards_unverifiable")
                 : d?.message || t("common_error");
-      setNotice(text);
-      if (code === "granted") tg()?.HapticFeedback?.notification?.("success");
+      setRewardMsg(text);
+      if (code === "granted") {
+        tg()?.HapticFeedback?.notification?.("success");
+        setTimeout(() => setRewardMsg(null), 2500);
+      } else if (code === "not_subscribed" && typeof d?.channelUrl === "string") {
+        setRewardUrl(d.channelUrl);
+      }
       await refreshMe();
     } catch {
-      setNotice(t("common_error"));
+      setRewardMsg(t("common_error"));
     }
   }
 
@@ -792,6 +815,18 @@ export default function MiniApp({
                     </button>
                   )}
                 </div>
+                {rewardUrl && (
+                  <div style={{ marginTop: 10 }}>
+                    <a className="btn btn-primary btn-sm" href={rewardUrl} target="_blank" rel="noreferrer">
+                      🔗 {t("rewards_subscribe_now")}
+                    </a>
+                  </div>
+                )}
+                {rewardMsg && (
+                  <div className="small muted" style={{ marginTop: 8 }} role="status">
+                    {rewardMsg}
+                  </div>
+                )}
               </div>
             )}
 

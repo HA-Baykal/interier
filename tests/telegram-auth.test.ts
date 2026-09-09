@@ -73,7 +73,9 @@ test("connection is explicit, checks the bot and public endpoint, and does not d
   const serialized = JSON.stringify(status);
   for (const secret of [TOKEN, BYPASS, configuration.telegramConfig().webhookSecret]) assert.ok(!serialized.includes(secret));
   const installed = fixture.calls.find(call => call.method === "setWebhook")!;
-  assert.deepEqual(installed.body.allowed_updates, ["message", "callback_query"]);
+  // The shared webhook also carries Telegram Stars payments, so the checkout
+  // query must be among the delivered updates.
+  assert.deepEqual(installed.body.allowed_updates, ["message", "callback_query", "pre_checkout_query"]);
   assert.equal(installed.body.drop_pending_updates, false);
   assert.ok(!JSON.stringify((await store.db()).settings).includes(TOKEN));
   assert.ok(!JSON.stringify((await store.db()).settings).includes(BYPASS));

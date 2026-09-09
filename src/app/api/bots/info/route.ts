@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ensureBootSafe } from "@/lib/boot";
 import { appUrl, telegramConfig, vkConfig } from "@/lib/bots/config";
+import { supportContact } from "@/lib/bots/support";
 import { getSetting } from "@/lib/config";
 import { webhookPath } from "@/lib/bots/setup";
 
@@ -52,5 +53,7 @@ export async function GET(req: NextRequest) {
     },
   ];
 
-  return NextResponse.json({ appUrl: app, platforms });
+  const support = await supportContact();
+
+  return NextResponse.json({ appUrl: app, support, platforms });
 }

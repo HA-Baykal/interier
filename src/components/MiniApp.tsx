@@ -82,6 +82,8 @@ export default function MiniApp({
 
   const [current, setCurrent] = useState<Gen | null>(null);
   const [history, setHistory] = useState<Gen[]>([]);
+  const [support, setSupport] = useState<{ username: string; url: string } | null>(null);
+  const [supportNeeded, setSupportNeeded] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const camRef = useRef<HTMLInputElement>(null);
@@ -105,6 +107,14 @@ export default function MiniApp({
     } catch {
       /* ignore */
     }
+  }, []);
+
+  /* --- support contact for "paid but credits missing" --- */
+  useEffect(() => {
+    fetch("/api/bots/info")
+      .then((r) => r.json())
+      .then((d) => setSupport(d.support || null))
+      .catch(() => {});
   }, []);
 
   /* --- container login -------------------------------------------------- */
@@ -220,7 +230,9 @@ export default function MiniApp({
       const res = await fetch("/api/generate", { method: "POST", headers: authHeaders(), body: fd });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error === "no_credits" || data.error === "no_trial" ? t("studio_no_credits") : t("common_error"));
+        const noCredits = data.error === "no_credits" || data.error === "no_trial";
+        setSupportNeeded(noCredits);
+        setError(noCredits ? t("studio_no_credits") : t("common_error"));
         return;
       }
       setCurrent((data.generations || [])[0] || null);
@@ -462,7 +474,19 @@ export default function MiniApp({
               />
             </div>
 
-            {error && <div className="err">{error}</div>}
+            {error && (
+              <div className="err">
+                {error}
+                {supportNeeded && support && (
+                  <div className="small" style={{ marginTop: 6 }}>
+                    {t("studio_support_hint")}{" "}
+                    <a href={support.url} target="_blank" rel="noreferrer" style={{ fontWeight: 600 }}>
+                      @{support.username}
+                    </a>
+                  </div>
+                )}
+              </div>
+            )}
             {notice && <div className="small muted">{notice}</div>}
 
             <button className="btn btn-primary" disabled={busy || !file} onClick={generate}>

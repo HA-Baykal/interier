@@ -35,6 +35,7 @@ const KEYS = [
   "channel_telegram_url",
   "channel_vk_url",
   "channel_max_url",
+  "support_telegram_username",
 ];
 
 function mask(v: string): string {

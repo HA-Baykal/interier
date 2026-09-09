@@ -22,6 +22,7 @@ import { now, uid } from "../db";
 import { BotChat, Generation, Locale, Style, User } from "../types";
 import { ACTION, BotButton, BotInbound, BotOutbound, BotReply, buttons } from "./types";
 import { appUrl, publicBaseUrl, telegramConfig } from "./config";
+import { creditSupportMessage, supportButton, supportContact } from "./support";
 import {
   applyReferralFromBot,
   botStats,
@@ -209,6 +210,8 @@ async function helpMessage(ctx: Ctx): Promise<BotOutbound> {
   const L = (k: string, v?: Record<string, string | number>) => tr(locale, k, v);
   const styles = await activeStyles();
   const mode = await generationMode();
+  const support = await supportContact();
+  const at = `@${support.username}`;
   return {
     text: [
       L("app_title"),
@@ -222,6 +225,7 @@ async function helpMessage(ctx: Ctx): Promise<BotOutbound> {
       `✏️ ${L("edit_hint")}`,
       "",
       "/menu · /history · /credits · /app · /cancel",
+      L("bot_support_line", { support: at }),
       mode === "demo" ? `⚠️ ${L("studio_demo_note")}` : "",
     ]
       .filter(Boolean)
@@ -229,6 +233,7 @@ async function helpMessage(ctx: Ctx): Promise<BotOutbound> {
     buttons: clampKeyboard([
       [{ kind: "callback", text: tr(locale, "bot_btn_design"), action: ACTION.START_DESIGN }],
       [{ kind: "app", text: tr(locale, "bot_btn_app"), url: ctx.appLink }],
+      [supportButton(tr(locale, "bot_btn_support", { support: at }), at)],
     ]),
   };
 }
@@ -558,8 +563,10 @@ async function balanceMessage(ctx: Ctx): Promise<BotOutbound> {
   const unlimited = user ? await isUnlimitedMode(user) : false;
   const packs = await activePackages();
   const base = await publicBaseUrl(ctx.host);
+  const support = await supportContact();
+  const at = `@${support.username}`;
   return {
-    text: tr(locale, "bot_balance", { n: user?.credits ?? 0, unlimited: unlimited ? "ON ♾️" : "OFF" }),
+    text: [tr(locale, "bot_balance", { n: user?.credits ?? 0, unlimited: unlimited ? "ON ♾️" : "OFF" }), tr(locale, "bot_support_paid", { support: at })].join("\n"),
     buttons: clampKeyboard([
       [{ kind: "callback", text: tr(locale, "bot_btn_bonus"), action: ACTION.BONUS }],
       ...packs.slice(0, 4).map(
@@ -572,6 +579,7 @@ async function balanceMessage(ctx: Ctx): Promise<BotOutbound> {
             } as BotButton,
           ]
       ),
+      [supportButton(tr(locale, "bot_btn_support", { support: at }), at)],
       [{ kind: "app", text: tr(locale, "bot_btn_app"), url: ctx.appLink }],
     ]),
   };
@@ -736,7 +744,7 @@ async function generateFlow(ctx: Ctx, styles: Style[], scope: "single" | "all"):
     try {
       charge = await chargeForGeneration(user, "all");
     } catch (e) {
-      return { messages: [{ text: generationErrorMessage(locale, e) }] };
+      return { messages: [await generationErrorOutbound(locale, e)] };
     }
   }
 
@@ -766,7 +774,7 @@ async function generateFlow(ctx: Ctx, styles: Style[], scope: "single" | "all"):
         lastGenId = payload.id;
         out.push(...(await payloadMessages(ctx, payload)));
       } catch (e) {
-        out.push({ text: generationErrorMessage(locale, e) });
+        out.push(await generationErrorOutbound(locale, e));
       }
     }
     await updateChat(platform, chatId, {
@@ -803,6 +811,20 @@ function generationErrorMessage(locale: Locale, e: unknown): string {
   return tr(locale, "bot_error", { err: safeErrorMessage(e) });
 }
 
+/**
+ * Credit shortage is special: the user may have paid but not received the
+ * generations, so instead of a dead end we show the support contact with a
+ * clickable button that opens the owner's account.
+ */
+function isCreditShortage(e: unknown): boolean {
+  return e instanceof RequestError && ["no_credits", "no_trial", "trial_used", "free_budget_exhausted"].includes(e.code);
+}
+
+async function generationErrorOutbound(locale: Locale, e: unknown): Promise<BotOutbound> {
+  if (isCreditShortage(e)) return creditSupportMessage(locale, "no_credits");
+  return { text: generationErrorMessage(locale, e) };
+}
+
 async function editFlow(ctx: Ctx, generationId: string, instruction: string, forceTargets?: string[]): Promise<BotReply> {
   const { inbound, chat, locale, user } = ctx;
   if (!user) return { messages: [{ text: tr(locale, "bot_no_design") }] };
@@ -822,7 +844,7 @@ async function editFlow(ctx: Ctx, generationId: string, instruction: string, for
     try {
       res = await runInstructionEdit({ user, generationId, instruction, origin: platform });
     } catch (e) {
-      return [{ text: generationErrorMessage(locale, e) }];
+      return [await generationErrorOutbound(locale, e)];
     }
     await updateChat(platform, chatId, { step: "idle" });
     if ("error" in res) {

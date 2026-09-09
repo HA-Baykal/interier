@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Admin from "@/components/Admin";
 import AdminBots from "@/components/AdminBots";
 import AdminShopping from "@/components/AdminShopping";
+import AdminUsers from "@/components/AdminUsers";
 import { resolvePageUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { adminSettingsView } from "@/lib/admin-settings";
@@ -63,6 +64,7 @@ export default async function AdminPage({
         hasTogether: !!process.env.TOGETHER_API_KEY || !!process.env.FAL_API_KEY,
       }}
       />
+      <AdminUsers />
       <AdminShopping />
       <AdminBots />
     </>

@@ -210,6 +210,9 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   channel_telegram_url: "https://t.me/interier_ai",
   channel_vk_url: "https://vk.com/interier_ai",
   channel_max_url: "https://max.ru/interier_ai",
+
+  /* --- Support contact (clickable @username that opens the owner's account) --- */
+  support_telegram_username: "vektor_komforta38",
 };
 
 /**

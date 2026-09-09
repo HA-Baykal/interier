@@ -84,6 +84,8 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
   const [unlimited, setUnlimited] = useState(initialUnlimited);
   const [compare, setCompare] = useState(true);
   const [pubIds, setPubIds] = useState<Record<string, boolean>>({});
+  const [support, setSupport] = useState<{ username: string; url: string } | null>(null);
+  const [supportNeeded, setSupportNeeded] = useState(false);
 
   function loadHistory() {
     return fetch("/api/generations", { headers: authHeaders(), cache: "no-store" })
@@ -94,6 +96,10 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
 
   useEffect(() => {
     void loadHistory();
+    fetch("/api/bots/info")
+      .then((r) => r.json())
+      .then((d) => setSupport(d.support || null))
+      .catch(() => {});
   }, []);
 
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
@@ -155,10 +161,10 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
           router.push("/login");
           return;
         }
+        const noCredits = data.error === "no_credits" || data.error === "no_trial";
+        setSupportNeeded(noCredits);
         setError(
-          data.error === "no_credits"
-            ? t("studio_no_credits")
-            : data.error === "no_trial"
+          noCredits
             ? t("studio_no_credits")
             : data.message || data.error || (res.status === 413
               ? (locale === "ru" ? "Фото слишком большое для сервера. Выберите файл поменьше." : "Photo is too large for the server.")
@@ -335,7 +341,19 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
             )}
           </div>
 
-          {error && <div className="err" role="alert" style={{ marginTop: 14 }}>{error}</div>}
+          {error && (
+            <div className="err" role="alert" style={{ marginTop: 14 }}>
+              {error}
+              {supportNeeded && support && (
+                <div style={{ marginTop: 8 }}>
+                  {t("studio_support_hint")}{" "}
+                  <a href={support.url} target="_blank" rel="noreferrer" style={{ fontWeight: 600 }}>
+                    @{support.username}
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Right: results */}

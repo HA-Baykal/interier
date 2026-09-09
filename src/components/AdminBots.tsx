@@ -52,6 +52,7 @@ const FIELDS: { group: string; icon: string; items: Field[] }[] = [
       { key: "admin_telegram_id", label: "bots_owner_id", placeholder: "123456789", hint: "bots_owner_hint" },
       { key: "bots_link_ttl_min", label: "bots_ttl", type: "number" },
       { key: "bots_poll_secret", label: "bots_poll_secret", type: "password", hint: "bots_poll_secret_hint" },
+      { key: "support_telegram_username", label: "admin_bots_support_username", placeholder: "vektor_komforta38", hint: "admin_bots_support_username_hint" },
     ],
   },
   {

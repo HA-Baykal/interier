@@ -75,6 +75,7 @@ async function register(req: NextRequest) {
       referralCode: draft.users.some((u) => u.referralCode === newReferralCode) ? `${newReferralCode}-${uid().slice(0, 8)}` : newReferralCode,
       referredBy,
       isAdmin: false,
+      origin: "web",
       identityVerifiedAt: null, identityVerifiedBy: null,
     });
     if (referredBy && draft.users.some(user => user.id === referredBy)) {

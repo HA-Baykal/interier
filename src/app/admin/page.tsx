@@ -1,10 +1,12 @@
 import { redirect } from "next/navigation";
 import Admin from "@/components/Admin";
+import AdminUsers from "@/components/AdminUsers";
 import AdminBots from "@/components/AdminBots";
 import AdminShopping from "@/components/AdminShopping";
 import { resolvePageUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { adminSettingsView } from "@/lib/admin-settings";
+import { buildAdminUsersView } from "@/lib/admin-users";
 import { activeStyles, activePackages } from "@/lib/config";
 import { ClientPackage, ClientStyle } from "@/components/types";
 
@@ -19,6 +21,8 @@ export default async function AdminPage({
   if (!user.isAdmin) redirect("/");
 
   const d = await db();
+  const { stats: usersStats, users: adminUsers } = buildAdminUsersView(d);
+
   const styles: ClientStyle[] = (await activeStyles()).map((s) => ({
     id: s.id,
     slug: s.slug,
@@ -48,21 +52,24 @@ export default async function AdminPage({
   return (
     <>
       <Admin
-      stats={{
-        users: d.users.length,
-        generations: d.generations.length,
-        credits: d.users.reduce((a, u) => a + u.credits, 0),
-        referrals: d.referrals.filter((r) => r.rewarded).length,
-      }}
-      settings={adminSettingsView(d)}
-      styles={styles}
-      packages={packages}
-      env={{
-        hasReplicate: !!process.env.REPLICATE_API_TOKEN,
-        hasOpenAI: !!process.env.OPENAI_API_KEY,
-        hasTogether: !!process.env.TOGETHER_API_KEY || !!process.env.FAL_API_KEY,
-      }}
+        stats={{
+          users: d.users.length,
+          generations: d.generations.length,
+          credits: d.users.reduce((a, u) => a + u.credits, 0),
+          referrals: d.referrals.filter((r) => r.rewarded).length,
+        }}
+        settings={adminSettingsView(d)}
+        styles={styles}
+        packages={packages}
+        env={{
+          hasReplicate: !!process.env.REPLICATE_API_TOKEN,
+          hasOpenAI: !!process.env.OPENAI_API_KEY,
+          hasTogether: !!process.env.TOGETHER_API_KEY || !!process.env.FAL_API_KEY,
+        }}
       />
+      <div className="container" style={{ paddingBottom: 20 }}>
+        <AdminUsers initialUsers={adminUsers} initialStats={usersStats} />
+      </div>
       <AdminShopping />
       <AdminBots />
     </>

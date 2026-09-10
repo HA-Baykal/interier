@@ -327,7 +327,7 @@ async function main() {
   /* ------------------------------------------- 12. Telegram: один вебхук на всё */
   section("12. Telegram: один вебхук = вход + приложение");
   const tgSecret = "selftest_" + Date.now().toString(36);
-  await api("/api/admin/bots", { method: "PUT", token: adminToken, body: { telegram_webhook_secret: tgSecret } });
+  await api("/api/admin/bots", { method: "PUT", token: adminToken, body: { telegram_webhook_secret: tgSecret, telegram_bot_token: "123456:TEST_TOKEN_FOR_SELFTEST" } });
   const info = await api("/api/bots/info");
   const tgEntry = (info.json?.platforms || []).find((p) => p.platform === "telegram");
   const tgPath = tgEntry?.webhookPath || info.json?.webhookPaths?.telegram || "";
@@ -369,6 +369,33 @@ async function main() {
     raw: JSON.stringify(update(700002, "/start")),
   });
   check(tgDup.status === 200, "повтор того же update_id безопасен", `status ${tgDup.status}`);
+
+  /* --------------------------------- 13. Управление пользователями и балансом */
+  section("13. Просмотр пользователей и ручное начисление генераций");
+  const usersAnon = await api("/api/admin/users");
+  check(usersAnon.status === 403, "анонимный доступ к списку пользователей закрыт (403)", `status ${usersAnon.status}`);
+
+  const usersAdmin = await api("/api/admin/users", { token: adminToken });
+  check(usersAdmin.status === 200 && Array.isArray(usersAdmin.json?.users), "GET /api/admin/users: список пользователей получен", `пользователей: ${(usersAdmin.json?.users || []).length}, всего генераций: ${usersAdmin.json?.stats?.totalGenerations ?? 0}`);
+  const allUsers = usersAdmin.json?.users || [];
+  const targetTestUser = allUsers.find((u) => u.email === botUser) || allUsers[0];
+  check(!!targetTestUser, "найден тестовый пользователь для начисления", targetTestUser?.name || targetTestUser?.id || "—");
+
+  const initialCredits = targetTestUser?.credits || 0;
+  const addRes = await api("/api/admin/users", {
+    method: "POST",
+    token: adminToken,
+    body: { userId: targetTestUser.id, delta: 15, resetTrial: true },
+  });
+  check(addRes.status === 200 && addRes.json?.user?.credits === initialCredits + 15, "ручное начисление +15 генераций через POST /api/admin/users", `новый баланс: ${addRes.json?.user?.credits} ⚡`);
+  check(addRes.json?.user?.trialUsed === false, "сброс бесплатной пробной генерации сработал (trialUsed = false)");
+
+  const setRes = await api(`/api/admin/users/${targetTestUser.id}/credits`, {
+    method: "POST",
+    token: adminToken,
+    body: { amount: 77, mode: "set" },
+  });
+  check(setRes.status === 200 && setRes.json?.user?.credits === 77, "установка точного баланса 77 через /api/admin/users/[id]/credits", `баланс: ${setRes.json?.user?.credits} ⚡`);
 
   finish();
 }

@@ -1198,3 +1198,33 @@ button {
 .telegram-challenge { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 .telegram-challenge p { margin: 0; }
 .telegram-code { display: block; font-size: 30px; font-variant-numeric: tabular-nums; letter-spacing: .18em; color: var(--brand); }
+
+/* ===== Admin Users Section ===== */
+.admin-users-section {
+  border-color: rgba(107, 124, 255, 0.28);
+}
+.user-admin-card:hover {
+  border-color: var(--border-strong) !important;
+  background: var(--bg-elev-2) !important;
+}
+.chip-web {
+  background: rgba(107, 124, 255, 0.12) !important;
+  color: var(--brand) !important;
+  border-color: rgba(107, 124, 255, 0.25) !important;
+}
+.chip-tg {
+  background: rgba(46, 165, 255, 0.12) !important;
+  color: #2ea5ff !important;
+  border-color: rgba(46, 165, 255, 0.25) !important;
+}
+.chip-vk {
+  background: rgba(76, 117, 163, 0.14) !important;
+  color: #729ecf !important;
+  border-color: rgba(76, 117, 163, 0.3) !important;
+}
+.chip-max {
+  background: rgba(37, 117, 252, 0.14) !important;
+  color: #5c9cff !important;
+  border-color: rgba(37, 117, 252, 0.3) !important;
+}
+

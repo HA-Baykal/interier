@@ -84,7 +84,6 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
   }
 
   const tgGranted = user.telegramGranted;
-  const vkGranted = user.vkGranted;
 
   return (
     <div className="container" style={{ paddingTop: 40, paddingBottom: 70 }}>
@@ -107,6 +106,7 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
           }} />
         </>}
       </div>
+
       {/* Referral */}
       <div className="ref-box mt">
         <h2 style={{ fontSize: 19 }}>{t("account_referral_title")}</h2>
@@ -140,22 +140,8 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
               </div>
             )}
           </div>
-          <div className="reward-card">
-            <h3>💬 {t("rewards_vk")}</h3>
-            <p>{t("rewards_vk_desc")}</p>
-            {vkGranted ? (
-              <span className="chip" style={{ color: "var(--success)" }}>✓ {t("rewards_connected")}</span>
-            ) : (
-              <div className="row" style={{ flexWrap: "wrap" }}>
-                <button className="btn btn-ghost btn-sm" disabled title={t("rewards_not_configured")}>
-                  {t("rewards_connect")}
-                </button>
-              </div>
-            )}
-          </div>
         </div>
       </div>
-
 
       {/* Messenger bot & mini app */}
       <BotLinkPanel />
@@ -197,14 +183,6 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
   );
 }
 
-/**
- * «One account, three messengers».
- *
- * A chat with the bot and this website are the same account: the button hands
- * out a short-lived `bind_…` code, Telegram opens the bot with it as a deep link
- * (VK and MAX paste it as a message), and the bot attaches the chat here — with
- * the same credits, history and designs.
- */
 function BotLinkPanel() {
   const { t, locale } = useLocale();
   const [info, setInfo] = useState<any | null>(null);
@@ -251,14 +229,14 @@ function BotLinkPanel() {
           {platforms.map((p: any) => (
             <div className="reward-card" key={p.platform}>
               <h3>
-                {p.platform === "telegram" ? "✈️ Telegram" : p.platform === "vk" ? "💬 VK" : "🟦 MAX"}
-                {p.username ? ` · ${p.platform === "telegram" ? "@" + String(p.username).replace(/^@/, "") : p.username}` : ""}
+                ✈️ Telegram
+                {p.username ? ` · @${String(p.username).replace(/^@/, "")}` : ""}
               </h3>
               <p className="small muted">{locale === "ru" ? "Дизайны, кредиты и история — общие с сайтом." : "Designs, credits and history are shared with the site."}</p>
               {link[p.platform]?.link ? (
                 <div className="row" style={{ flexWrap: "wrap", gap: 8, marginTop: 6 }}>
                   <a className="btn btn-primary btn-sm" href={link[p.platform].link} target="_blank" rel="noreferrer">
-                    {p.usesDeepLink ? t("account_bot_open_start") : t("account_bot_open_chat")}
+                    {t("account_bot_open_start")}
                   </a>
                   <button
                     className="btn btn-ghost btn-sm"
@@ -271,13 +249,6 @@ function BotLinkPanel() {
                 <button className="btn btn-ghost btn-sm" style={{ marginTop: 6 }} disabled={busy === p.platform} onClick={() => connect(p.platform)}>
                   {busy === p.platform ? "…" : t("account_bot_connect")}
                 </button>
-              )}
-              {link[p.platform] && !link[p.platform].usesDeepLink && (
-                <p className="small muted" style={{ marginTop: 6 }}>
-                  {t("account_bot_code")}
-                  <br />
-                  <code style={{ userSelect: "all" }}>{link[p.platform].code}</code>
-                </p>
               )}
               {p.hasMiniApp && info?.appUrl && (
                 <p className="small muted" style={{ marginTop: 8 }}>

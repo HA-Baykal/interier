@@ -156,7 +156,6 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   free_trial_styles: "all", // trial renders all active styles
   max_original_mb: "20",
   reward_telegram: "1",
-  reward_vk: "1",
   reward_referral: "1",
   generation_mode: "demo",
   test_unlimited: "1", // unlimited generations while testing
@@ -181,7 +180,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   vision_api_key: "",
   vision_model: "gpt-4o-mini",
 
-  /* --- Bots (Telegram / VK / MAX) --- */
+  /* --- Telegram Bot & Mini App --- */
   bots_enabled: "1",
   bots_inline_generation: "0", // 1 = run generation inside the webhook (serverless)
   bots_poll_secret: "", // guards the long-polling endpoint for hosts without webhooks
@@ -192,24 +191,11 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   telegram_bot_username: "",
   telegram_mini_app_url: "",
   telegram_webhook_secret: "",
-  vk_group_id: "",
-  vk_access_token: "",
-  vk_callback_secret: "",
-  vk_confirmation_token: "",
-  vk_verify_signature: "1",
-  vk_mini_app_id: "",
-  vk_app_verify_token: "", // static token accepted from the VK Bridge login flow
   telegram_channel_id: "", // @channel or -100... id, for real "+1 за подписку" checks
-  max_bot_token: "",
-  max_bot_username: "",
-  max_base_url: "https://platform-api2.max.ru",
-  max_webhook_secret: "",
   bots_link_ttl_min: "60",
 
   /* --- Marketing channels linked from the bot menu --- */
   channel_telegram_url: "https://t.me/interier_ai",
-  channel_vk_url: "https://vk.com/interier_ai",
-  channel_max_url: "https://max.ru/interier_ai",
 };
 
 /**

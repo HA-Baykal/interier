@@ -22,6 +22,6 @@ export function isolateStorage() {
 export const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a2Z8AAAAASUVORK5CYII=", "base64");
 export const TEST_USER = {
   id: "usr_test", email: "test@example.test", passwordHash: "unused", name: "Test", createdAt: 1,
-  credits: 3, trialUsed: false, telegramId: null, telegramUsername: null, vkId: null, vkUsername: null,
+  credits: 3, trialUsed: false, telegramId: null, telegramUsername: null,
   referralCode: "TEST1234", referredBy: null, isAdmin: true, identityVerifiedAt: 1, identityVerifiedBy: "email" as const,
 };

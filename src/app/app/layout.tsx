@@ -6,11 +6,11 @@ export const metadata: Metadata = {
 };
 
 /**
- * Messenger mini app shell.
+ * Telegram Mini App shell.
  *
  * Loads the official Telegram WebApp SDK (defines `window.Telegram.WebApp`,
  * which the app uses for signed login, haptics and the back button). If the
- * script cannot load (offline preview, MAX/VK container) the app keeps working:
+ * script cannot load (e.g. offline preview) the app keeps working:
  * the bot simply hands over a one-time link token instead.
  */
 export default function AppLayout({ children }: { children: React.ReactNode }) {

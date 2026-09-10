@@ -6,7 +6,7 @@ import { BotPlatform } from "@/lib/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** POST { platform?: "telegram"|"vk"|"max" } — register webhooks / menu button. */
+/** POST { platform?: "telegram" } — register webhooks / menu button. */
 export async function POST(req: NextRequest) {
   try {
     await requireAdmin(req);

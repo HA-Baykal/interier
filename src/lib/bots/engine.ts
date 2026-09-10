@@ -1,11 +1,11 @@
 /**
- * Messenger conversation engine — the bot equivalent of the website.
+ * Telegram conversation engine — the bot equivalent of the website.
  *
- * One implementation for Telegram, VK and MAX: send a room photo, pick a style,
- * generate, get the design *with a shopping list of its details*, then keep
- * iterating in plain words ("замени только шторы"). Everything is stored on the
- * same accounts the web studio uses, so a chat is just another front-end —
- * including an admin section for the service owner (auto-admin by Telegram id).
+ * Send a room photo, pick a style, generate, get the design *with a shopping
+ * list of its details*, then keep iterating in plain words ("замени только шторы").
+ * Everything is stored on the same accounts the web studio uses, so a chat is
+ * just another front-end — including an admin section for the service owner
+ * (auto-admin by Telegram id).
  */
 
 import { db, mutate } from "../db";
@@ -131,8 +131,7 @@ export async function handleBotUpdate(inbound: BotInbound, hostHint?: string | n
     }
   }
 
-  // VK and MAX cannot always carry a deep link, so the code may arrive as a
-  // plain message: «bind_…» connects this chat to the account from the website.
+  // Connecting account: «bind_…» connects this chat to the account from the website.
   if (text.startsWith("bind_")) return bindFlow(ctx, text);
 
   if (photos.length > 0) return photoFlow(ctx, photos[0]);
@@ -467,7 +466,7 @@ async function actionFlow(ctx: Ctx, action: string): Promise<BotReply> {
       return { messages: [await balanceMessage(ctx)] };
 
     case ACTION.BONUS:
-      if (arg === "tg" || arg === "vk") return bonusClaim(ctx, arg === "tg" ? "telegram" : "vk");
+      if (arg === "tg") return bonusClaim(ctx, "telegram");
       return { messages: [await bonusMessage(ctx)] };
 
     case ACTION.REFERRAL:
@@ -579,46 +578,40 @@ async function balanceMessage(ctx: Ctx): Promise<BotOutbound> {
 
 async function bonusMessage(ctx: Ctx): Promise<BotOutbound> {
   const { locale, user } = ctx;
-  const [tg, vk, ref] = await Promise.all([getSetting("reward_telegram"), getSetting("reward_vk"), getSetting("reward_referral")]);
+  const [tg, ref] = await Promise.all([getSetting("reward_telegram"), getSetting("reward_referral")]);
   const tgUrl = (await getSetting("channel_telegram_url")) || "https://t.me/interier_ai";
-  const vkUrl = (await getSetting("channel_vk_url")) || "https://vk.com/interier_ai";
   const { grantedRewards } = await import("../billing");
-  const granted = user ? await grantedRewards(user.id) : { telegram: false, vk: false };
+  const granted = user ? await grantedRewards(user.id) : { telegram: false };
 
   return {
-    text: tr(locale, "bot_bonus", { tg: tg || "1", vk: vk || "1", ref: ref || "1" }),
+    text: tr(locale, "bot_bonus", { tg: tg || "1", ref: ref || "1" }),
     buttons: clampKeyboard([
       [
         { kind: "link", text: `✈️ ${tr(locale, "rewards_telegram")}${granted.telegram ? " ✓" : ""}`, url: tgUrl },
-        { kind: "link", text: `💬 ${tr(locale, "rewards_vk")}${granted.vk ? " ✓" : ""}`, url: vkUrl },
       ],
       user && !granted.telegram ? [{ kind: "callback", text: `🎁 ${tr(locale, "bot_bonus_claim")} · Telegram`, action: `${ACTION.BONUS}:tg` }] : null,
-      user && !granted.vk ? [{ kind: "callback", text: `🎁 ${tr(locale, "bot_bonus_claim")} · VK`, action: `${ACTION.BONUS}:vk` }] : null,
       [{ kind: "callback", text: tr(locale, "bot_btn_balance", { n: user?.credits ?? 0 }), action: ACTION.BALANCE }],
     ]),
   };
 }
 
-async function bonusClaim(ctx: Ctx, channel: "telegram" | "vk"): Promise<BotReply> {
+async function bonusClaim(ctx: Ctx, channel: "telegram" = "telegram"): Promise<BotReply> {
   const { user, inbound, locale } = ctx;
   if (!user) return { messages: [{ text: tr(locale, "common_error") }] };
-  if (channel === "telegram") {
-    const { verifyChannelMembership } = await import("./telegram");
-    const ok = await verifyChannelMembership(inbound.externalId);
-    // null = channel not configured / bot can't check → demo grant (site behaviour parity)
-    if (ok === false) {
-      return {
-        messages: [
-          {
-            text: `✈️ ${tr(locale, "rewards_telegram_desc")}`,
-            buttons: clampKeyboard([[{ kind: "link", text: tr(locale, "rewards_telegram_url"), url: (await getSetting("channel_telegram_url")) || "https://t.me/interier_ai" }]]),
-          },
-        ],
-      };
-    }
+  const { verifyChannelMembership } = await import("./telegram");
+  const ok = await verifyChannelMembership(inbound.externalId);
+  if (ok === false) {
+    return {
+      messages: [
+        {
+          text: `✈️ ${tr(locale, "rewards_telegram_desc")}`,
+          buttons: clampKeyboard([[{ kind: "link", text: tr(locale, "rewards_telegram_url"), url: (await getSetting("channel_telegram_url")) || "https://t.me/interier_ai" }]]),
+        },
+      ],
+    };
   }
   const num = Number(inbound.externalId);
-  const res = await grantTelegramBonus(user, channel, Number.isFinite(num) ? num : null, inbound.username ?? null);
+  const res = await grantTelegramBonus(user, Number.isFinite(num) ? num : null, inbound.username ?? null);
   const text = res.granted ? tr(locale, "bot_bonus_done", { n: res.credits }) : tr(locale, "bot_bonus_already");
   return { messages: [{ text }, await bonusMessage(ctx)], toast: "🎁" };
 }
@@ -1026,7 +1019,7 @@ async function adminUsers(ctx: Ctx): Promise<BotOutbound> {
   const top = [...d.users].sort((a, b) => b.credits - a.credits).slice(0, 8);
   const lines = top.map(
     (u, i) =>
-      `${i + 1}. ${(u.name || u.email || "Гость").slice(0, 24)} — ${u.credits}✦${u.isAdmin ? " 👑" : ""}${u.telegramId ? " ✈️" : ""}${u.vkId ? " 💬" : ""}${u.maxId ? " 🔵" : ""}`
+      `${i + 1}. ${(u.name || u.email || "Гость").slice(0, 24)} — ${u.credits}✦${u.isAdmin ? " 👑" : ""}${u.telegramId ? " ✈️" : ""}`
   );
   return {
     text: `${tr(ctx.locale, "bot_admin_users")}\n${lines.join("\n") || "—"}`,

@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 /**
- * Long-polling entry point for Telegram + MAX.
+ * Long-polling entry point for Telegram.
  *
  * `npm run bots:poll` (or a cron call every ~30s) hits this endpoint on hosts
  * where a public webhook is not available. Guarded by BOT_POLL_SECRET so nobody

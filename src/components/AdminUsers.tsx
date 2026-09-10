@@ -5,7 +5,7 @@ import { useLocale } from "./locale-context";
 import { authHeaders } from "@/lib/client-auth";
 import { AdminUserView, AdminUsersStats } from "@/lib/admin-users";
 
-type FilterOrigin = "all" | "web" | "telegram" | "vk" | "max" | "admin" | "with_credits" | "with_gens";
+type FilterOrigin = "all" | "web" | "telegram" | "admin" | "with_credits" | "with_gens";
 type SortOption = "newest" | "oldest" | "credits_desc" | "credits_asc" | "gens_desc" | "name_asc";
 
 type ModalState = {
@@ -31,8 +31,6 @@ export default function AdminUsers({
       total: initialUsers?.length || 0,
       web: 0,
       telegram: 0,
-      vk: 0,
-      max: 0,
       admins: 0,
       totalCredits: 0,
       totalGenerations: 0,
@@ -185,15 +183,10 @@ export default function AdminUsers({
   const filteredUsers = useMemo(() => {
     let result = [...users];
 
-    // Filter by origin / type
     if (filter === "web") {
       result = result.filter((u) => u.origin === "web");
     } else if (filter === "telegram") {
       result = result.filter((u) => u.origin === "telegram" || u.telegramLinked);
-    } else if (filter === "vk") {
-      result = result.filter((u) => u.origin === "vk" || u.vkLinked);
-    } else if (filter === "max") {
-      result = result.filter((u) => u.origin === "max" || u.maxLinked);
     } else if (filter === "admin") {
       result = result.filter((u) => u.isAdmin);
     } else if (filter === "with_credits") {
@@ -202,7 +195,6 @@ export default function AdminUsers({
       result = result.filter((u) => u.generationsCount > 0);
     }
 
-    // Search query
     const q = search.trim().toLowerCase();
     if (q) {
       result = result.filter((u) => {
@@ -210,14 +202,11 @@ export default function AdminUsers({
         const emailMatch = u.email?.toLowerCase().includes(q);
         const idMatch = u.id?.toLowerCase().includes(q);
         const tgMatch = u.telegramUsername?.toLowerCase().includes(q) || String(u.telegramId || "").includes(q);
-        const vkMatch = u.vkUsername?.toLowerCase().includes(q) || String(u.vkId || "").includes(q);
-        const maxMatch = u.maxUsername?.toLowerCase().includes(q) || String(u.maxId || "").includes(q);
         const refMatch = u.referralCode?.toLowerCase().includes(q);
-        return nameMatch || emailMatch || idMatch || tgMatch || vkMatch || maxMatch || refMatch;
+        return nameMatch || emailMatch || idMatch || tgMatch || refMatch;
       });
     }
 
-    // Sort
     result.sort((a, b) => {
       switch (sort) {
         case "newest":
@@ -241,17 +230,10 @@ export default function AdminUsers({
   }, [users, filter, search, sort]);
 
   const originBadge = (origin: string) => {
-    switch (origin) {
-      case "telegram":
-        return <span className="chip chip-tg" title={t("admin_users_origin_telegram")}>✈️ Telegram</span>;
-      case "vk":
-        return <span className="chip chip-vk" title={t("admin_users_origin_vk")}>💬 VK</span>;
-      case "max":
-        return <span className="chip chip-max" title={t("admin_users_origin_max")}>🟦 MAX</span>;
-      case "web":
-      default:
-        return <span className="chip chip-web" title={t("admin_users_origin_web")}>🌐 {t("admin_users_origin_web")}</span>;
+    if (origin === "telegram") {
+      return <span className="chip chip-tg" title={t("admin_users_origin_telegram")}>✈️ Telegram</span>;
     }
+    return <span className="chip chip-web" title={t("admin_users_origin_web")}>🌐 {t("admin_users_origin_web")}</span>;
   };
 
   return (
@@ -282,7 +264,7 @@ export default function AdminUsers({
       </div>
 
       {/* Summary statistics */}
-      <div className="admin-grid mt" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))" }}>
+      <div className="admin-grid mt" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
         <div className="stat-card" style={{ padding: "12px 14px" }}>
           <div className="k">{t("admin_users_stat_total")}</div>
           <div className="v" style={{ fontSize: 24 }}>{stats.total}</div>
@@ -294,14 +276,6 @@ export default function AdminUsers({
         <div className="stat-card" style={{ padding: "12px 14px" }}>
           <div className="k">{t("admin_users_stat_telegram")}</div>
           <div className="v" style={{ fontSize: 24, color: "#2ea5ff" }}>{stats.telegram}</div>
-        </div>
-        <div className="stat-card" style={{ padding: "12px 14px" }}>
-          <div className="k">{t("admin_users_stat_vk")}</div>
-          <div className="v" style={{ fontSize: 24, color: "#4c75a3" }}>{stats.vk}</div>
-        </div>
-        <div className="stat-card" style={{ padding: "12px 14px" }}>
-          <div className="k">{t("admin_users_stat_max")}</div>
-          <div className="v" style={{ fontSize: 24, color: "#2575fc" }}>{stats.max}</div>
         </div>
         <div className="stat-card" style={{ padding: "12px 14px" }}>
           <div className="k">{t("admin_users_stat_total_credits")}</div>
@@ -383,20 +357,6 @@ export default function AdminUsers({
             {t("admin_users_filter_telegram")} <span style={{ opacity: 0.75, marginLeft: 4 }}>({stats.telegram})</span>
           </button>
           <button
-            className={`btn btn-sm ${filter === "vk" ? "btn-primary" : "btn-ghost"}`}
-            style={{ borderRadius: 999, padding: "5px 14px" }}
-            onClick={() => setFilter("vk")}
-          >
-            {t("admin_users_filter_vk")} <span style={{ opacity: 0.75, marginLeft: 4 }}>({stats.vk})</span>
-          </button>
-          <button
-            className={`btn btn-sm ${filter === "max" ? "btn-primary" : "btn-ghost"}`}
-            style={{ borderRadius: 999, padding: "5px 14px" }}
-            onClick={() => setFilter("max")}
-          >
-            {t("admin_users_filter_max")} <span style={{ opacity: 0.75, marginLeft: 4 }}>({stats.max})</span>
-          </button>
-          <button
             className={`btn btn-sm ${filter === "admin" ? "btn-primary" : "btn-ghost"}`}
             style={{ borderRadius: 999, padding: "5px 14px" }}
             onClick={() => setFilter("admin")}
@@ -464,10 +424,6 @@ export default function AdminUsers({
                           ? "linear-gradient(135deg, #ffd166, #ff9f1c)"
                           : u.origin === "telegram"
                           ? "linear-gradient(135deg, #2ea5ff, #0088cc)"
-                          : u.origin === "vk"
-                          ? "linear-gradient(135deg, #4c75a3, #2b5278)"
-                          : u.origin === "max"
-                          ? "linear-gradient(135deg, #2575fc, #6a11cb)"
                           : "linear-gradient(135deg, var(--brand), var(--brand-2))",
                         display: "grid",
                         placeItems: "center",
@@ -535,8 +491,6 @@ export default function AdminUsers({
                       title={t("admin_users_gens_details", {
                         web: u.generationsByOrigin.web,
                         tg: u.generationsByOrigin.telegram,
-                        vk: u.generationsByOrigin.vk,
-                        max: u.generationsByOrigin.max,
                       })}
                     >
                       <div className="small muted" style={{ fontSize: 11 }}>{t("admin_stats_generations")}</div>
@@ -572,20 +526,10 @@ export default function AdminUsers({
                       {!u.trialUsed ? `✓ ${t("admin_users_trial_available")}` : `✗ ${t("admin_users_trial_used")}`}
                     </span>
 
-                    {/* Linked messengers */}
+                    {/* Linked messenger */}
                     {u.telegramId && (
                       <span className="chip" style={{ color: "#2ea5ff" }}>
                         ✈️ {u.telegramUsername ? `@${u.telegramUsername}` : `TG:${u.telegramId}`}
-                      </span>
-                    )}
-                    {u.vkId && (
-                      <span className="chip" style={{ color: "#4c75a3" }}>
-                        💬 {u.vkUsername ? `@${u.vkUsername}` : `VK:${u.vkId}`}
-                      </span>
-                    )}
-                    {u.maxId && (
-                      <span className="chip" style={{ color: "#2575fc" }}>
-                        🟦 {u.maxUsername ? `@${u.maxUsername}` : `MAX:${u.maxId}`}
                       </span>
                     )}
 

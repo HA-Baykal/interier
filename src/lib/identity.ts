@@ -6,7 +6,7 @@ export function isIdentityVerified(user: Pick<User, "isAdmin" | "identityVerifie
   if (user.isAdmin === true) return true;
   return typeof user.identityVerifiedAt === "number" && Number.isFinite(user.identityVerifiedAt)
     && user.identityVerifiedAt > 0 && user.identityVerifiedAt <= Date.now()
-    && ["email", "telegram", "vk", "max"].includes(user.identityVerifiedBy || "");
+    && ["email", "telegram"].includes(user.identityVerifiedBy || "");
 }
 
 export function assertIdentityVerified(user: User): void {

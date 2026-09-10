@@ -7,9 +7,7 @@ export interface ClientUser {
   referralCode: string;
   referredBy: string | null;
   telegramId: number | null;
-  vkId: number | null;
   telegramGranted: boolean;
-  vkGranted: boolean;
   isAdmin: boolean;
   verified?: boolean;
   telegramLinked?: boolean;

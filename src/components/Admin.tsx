@@ -14,7 +14,6 @@ type Settings = {
   free_credits: string;
   daily_free_image_limit: string;
   reward_telegram: string;
-  reward_vk: string;
   reward_referral: string;
   test_unlimited: string;
   compatible_provider: string;
@@ -179,10 +178,6 @@ export default function Admin({
           <div className="field" style={{ flex: 1, minWidth: 180 }}>
             <label>{t("admin_setting_reward_tg")}</label>
             <input className="input" type="number" min="0" value={form.reward_telegram} onChange={field("reward_telegram")} />
-          </div>
-          <div className="field" style={{ flex: 1, minWidth: 180 }}>
-            <label>{t("admin_setting_reward_vk")}</label>
-            <input className="input" type="number" min="0" value={form.reward_vk} onChange={field("reward_vk")} />
           </div>
           <div className="field" style={{ flex: 1, minWidth: 180 }}>
             <label>{t("admin_setting_reward_ref")}</label>

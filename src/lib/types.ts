@@ -45,10 +45,6 @@ export type User = {
   trialUsed: boolean;
   telegramId: number | null;
   telegramUsername: string | null;
-  vkId: number | null;
-  vkUsername: string | null;
-  maxId?: number | null;
-  maxUsername?: string | null;
   /** Bot that this account was created from (email/password may be absent). */
   origin?: BotPlatform | "web" | null;
   /** Locale preferred inside the messenger app. */
@@ -56,12 +52,12 @@ export type User = {
   referralCode: string;
   referredBy: string | null;
   isAdmin: boolean;
-  verifiedIdentities?: { provider: "telegram" | "vk" | "max"; subject: string; verifiedAt: number }[];
+  verifiedIdentities?: { provider: "telegram"; subject: string; verifiedAt: number }[];
   identityVerifiedAt?: number | null;
-  identityVerifiedBy?: "email" | "telegram" | "vk" | "max" | null;
+  identityVerifiedBy?: "email" | "telegram" | null;
 };
 
-export type BotPlatform = "telegram" | "vk" | "max";
+export type BotPlatform = "telegram";
 
 /**
  * A purchasable interior detail detected on a generated design.
@@ -157,15 +153,14 @@ export type Generation = {
 };
 
 /**
- * Conversation state of one messenger chat. All three bots (Telegram, VK, MAX)
- * share this record and one engine, so a chat behaves identically everywhere.
+ * Conversation state of one Telegram chat.
  */
 export type BotChat = {
   id: string;
   platform: BotPlatform;
-  /** Chat/dialog id used when sending messages on that platform. */
+  /** Chat/dialog id used when sending messages on Telegram. */
   chatId: string;
-  /** Messenger user id (Telegram/VK/MAX numeric id, as string for safety). */
+  /** Telegram user id (numeric id, as string for safety). */
   externalId: string;
   username: string | null;
   displayName: string | null;
@@ -189,11 +184,10 @@ export type BotChat = {
   createdAt: number;
   updatedAt: number;
   lastError: string | null;
-  /** Adapter-specific scratch space (VK label map, MAX message ids, ...). */
   extra?: Record<string, unknown> | null;
 };
 
-/** One-time token that links a messenger account to a web/mini-app session. */
+/** One-time token that links a Telegram account to a web/mini-app session. */
 export type BotLinkToken = {
   token: string;
   platform: BotPlatform | "web";
@@ -216,8 +210,6 @@ export type GalleryItem = {
   createdAt: number;
   /**
    * Public shopping list — only present while `shopping_public_links` is on.
-   * A deliberately reduced copy of `DesignItem`: internal ids, confidence and
-   * detector provenance never leave the server.
    */
   shopping?: PublicShopping | null;
 };
@@ -239,7 +231,7 @@ export type PublicShopping = {
 export type Reward = {
   id: string;
   userId: string;
-  channel: "telegram" | "vk";
+  channel: "telegram";
   granted: boolean;
   createdAt: number;
   grantedAt: number | null;

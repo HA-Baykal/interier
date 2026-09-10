@@ -1217,14 +1217,4 @@ button {
   color: #2ea5ff !important;
   border-color: rgba(46, 165, 255, 0.25) !important;
 }
-.chip-vk {
-  background: rgba(76, 117, 163, 0.14) !important;
-  color: #729ecf !important;
-  border-color: rgba(76, 117, 163, 0.3) !important;
-}
-.chip-max {
-  background: rgba(37, 117, 252, 0.14) !important;
-  color: #5c9cff !important;
-  border-color: rgba(37, 117, 252, 0.3) !important;
-}
 

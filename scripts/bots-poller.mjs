@@ -1,20 +1,6 @@
 #!/usr/bin/env node
 /**
- * Bot transport worker: long polling for Telegram + MAX.
- *
- * Webhooks are the production default (POST /api/bots/telegram/webhook), but a
- * webhook needs a public HTTPS host. On a laptop, behind a plain-HTTP host or on
- * a MAX bot that has not been verified for HTTPS yet, run this worker instead: it
- * periodically calls POST /api/bots/poll on your server, which fetches updates
- * from the messengers and pushes the answers back — the same engine either way.
- *
- *   BOT_BASE_URL   server to drive (default http://127.0.0.1:3000)
- *   BOT_POLL_SECRET  must match the `bots_poll_secret` setting (admin panel)
- *   BOT_POLL_TIMEOUT seconds a poll request waits for updates (default 20)
- *   BOT_POLL_INTERVAL idle seconds between cycles (default 2)
- *
- *   npm run bots:poll            # keep running
- *   npm run bots:poll -- --once  # single cycle (for cron/systemd timers)
+ * Bot transport worker: long polling for Telegram.
  */
 
 const base = (process.env.BOT_BASE_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
@@ -60,14 +46,13 @@ while (!stopping) {
     const r = await cycle();
     backoff = 1;
     const tg = r.telegram?.count || 0;
-    const mx = r.max?.count || 0;
-    const errs = [r.telegram?.error && `telegram: ${r.telegram.error}`, r.max?.error && `max: ${r.max.error}`].filter(Boolean);
-    handled += tg + mx;
-    if (tg || mx || errs.length) {
-      console.log(`[bots] telegram=${tg} max=${mx}${errs.length ? " ⚠ " + errs.join(" | ") : ""}`);
+    const errs = [r.telegram?.error && `telegram: ${r.telegram.error}`].filter(Boolean);
+    handled += tg;
+    if (tg || errs.length) {
+      console.log(`[bots] telegram=${tg}${errs.length ? " ⚠ " + errs.join(" | ") : ""}`);
     }
     if (once) break;
-    if (!tg && !mx) await sleep(interval * 1000);
+    if (!tg) await sleep(interval * 1000);
   } catch (e) {
     console.error(`[bots] ${e.message} — повтор через ${backoff}s`);
     if (once) process.exit(1);

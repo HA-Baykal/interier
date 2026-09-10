@@ -1,12 +1,11 @@
 /**
- * Messenger configuration (Telegram / VK / MAX).
+ * Telegram Bot & Mini App configuration.
  *
- * Every value can live either in the environment (hosting panel) or in the
- * admin panel (DB setting wins), because tokens are usually pasted into the
- * panel once and then tuned from the UI while testing.
+ * Values can live either in the environment (hosting panel) or in the
+ * admin panel (DB setting wins).
  */
 
-import { getSetting, getSettingBool, getSettingOrEnv } from "../config";
+import { getSettingBool, getSettingOrEnv } from "../config";
 import { BotPlatform } from "../types";
 
 export type TelegramConfig = {
@@ -18,25 +17,7 @@ export type TelegramConfig = {
   adminId: string | null;
 };
 
-export type VkConfig = {
-  enabled: boolean;
-  token: string;
-  groupId: string | null;
-  callbackSecret: string | null;
-  verifySignature: boolean;
-  appId: string | null;
-};
-
-export type MaxConfig = {
-  enabled: boolean;
-  token: string;
-  /** platform-api2.max.ru since 2026-07-19; the older host stays configurable. */
-  baseUrl: string;
-  webhookSecret: string | null;
-};
-
 function normalizeToken(raw: string): string {
-  // Panels sometimes get "Bearer 123:ABC" pasted in; Telegram/VK/MAX want the raw token.
   return (raw || "").replace(/^bearer\s+/i, "").trim();
 }
 
@@ -55,44 +36,12 @@ export async function telegramConfig(): Promise<TelegramConfig> {
   };
 }
 
-export async function vkConfig(): Promise<VkConfig> {
-  const token = normalizeToken(await getSettingOrEnv("vk_access_token", "VK_ACCESS_TOKEN"));
-  const botsEnabled = await getSettingBool("bots_enabled", true);
-  return {
-    enabled: botsEnabled && !!token,
-    token,
-    groupId: (await getSettingOrEnv("vk_group_id", "VK_GROUP_ID")) || null,
-    callbackSecret: (await getSettingOrEnv("vk_callback_secret", "VK_CALLBACK_SECRET")) || null,
-    verifySignature: (await getSettingOrEnv("vk_verify_signature")) !== "0",
-    appId: (await getSettingOrEnv("vk_mini_app_id", "VK_MINI_APP_ID")) || null,
-  };
-}
-
-export async function maxConfig(): Promise<MaxConfig> {
-  const token = normalizeToken(await getSettingOrEnv("max_bot_token", "MAX_BOT_TOKEN"));
-  const botsEnabled = await getSettingBool("bots_enabled", true);
-  const baseUrl =
-    (await getSettingOrEnv("max_base_url", "MAX_API_BASE_URL")) || "https://platform-api2.max.ru";
-  return {
-    enabled: botsEnabled && !!token,
-    token,
-    baseUrl: baseUrl.replace(/\/+$/, ""),
-    webhookSecret: (await getSettingOrEnv("max_webhook_secret", "MAX_WEBHOOK_SECRET")) || null,
-  };
-}
-
 export async function platformConfig(platform: BotPlatform) {
-  if (platform === "telegram") return telegramConfig();
-  if (platform === "vk") return vkConfig();
-  return maxConfig();
+  return telegramConfig();
 }
 
 /**
  * Absolute origin of this deployment.
- *
- * Bots need full URLs (Telegram Mini App buttons, images in messages), and the
- * request host is only trustworthy behind our own proxy, so the admin setting
- * `public_base_url` (or PUBLIC_BASE_URL) always wins.
  */
 export async function publicBaseUrl(hostHint?: string | null): Promise<string> {
   const configured = await getSettingOrEnv("public_base_url", "PUBLIC_BASE_URL");
@@ -126,8 +75,8 @@ export async function isOwnerTelegramId(id: string | number | null | undefined):
   return String(cfg.adminId) === String(id);
 }
 
-/** Extra owner ids (any platform), comma separated. */
-export async function ownerIds(platform: BotPlatform): Promise<Set<string>> {
+/** Extra owner ids, comma separated. */
+export async function ownerIds(platform: BotPlatform = "telegram"): Promise<Set<string>> {
   const key = `owner_ids_${platform}`;
   const raw = await getSettingOrEnv(key, key.toUpperCase());
   const set = new Set(
@@ -136,7 +85,7 @@ export async function ownerIds(platform: BotPlatform): Promise<Set<string>> {
       .map((s) => s.trim())
       .filter(Boolean)
   );
-  if (platform === "telegram" && (await telegramConfig()).adminId) set.add(String((await telegramConfig()).adminId));
+  if ((await telegramConfig()).adminId) set.add(String((await telegramConfig()).adminId));
   return set;
 }
 
@@ -153,8 +102,6 @@ export type PlatformStatus = {
 
 export async function platformsStatus(): Promise<PlatformStatus[]> {
   const tg = await telegramConfig();
-  const vk = await vkConfig();
-  const mx = await maxConfig();
   const botsEnabled = await getSettingBool("bots_enabled", true);
   return [
     {
@@ -162,13 +109,6 @@ export async function platformsStatus(): Promise<PlatformStatus[]> {
       enabled: botsEnabled,
       configured: !!tg.token,
       detail: tg.botUsername ? `@${tg.botUsername}` : null,
-    },
-    { platform: "vk", enabled: botsEnabled, configured: !!vk.token, detail: vk.groupId ? `группа ${vk.groupId}` : null },
-    {
-      platform: "max",
-      enabled: botsEnabled,
-      configured: !!mx.token,
-      detail: mx.baseUrl.replace(/^https:\/\//, ""),
     },
   ];
 }

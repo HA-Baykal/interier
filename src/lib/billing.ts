@@ -29,22 +29,21 @@ export async function spendCredit(userId: string): Promise<boolean> {
 /** Detect the subscribing user (Telegram) and grant the one-time bonus. */
 export async function grantTelegramBonus(
   user: User,
-  channel: "telegram" | "vk",
   externalId: number | null,
   username: string | null
 ): Promise<{ granted: boolean; already: boolean; credits: number }> {
-  const amount = await rewardAmount(channel === "telegram" ? "reward_telegram" : "reward_vk", 1);
+  const amount = await rewardAmount("reward_telegram", 1);
 
   return mutate((draft) => {
     let reward = draft.rewards.find(
-      (r) => r.userId === user.id && r.channel === channel
+      (r) => r.userId === user.id && r.channel === "telegram"
     );
     if (reward?.granted) return { granted: false, already: true, credits: 0 };
     if (!reward) {
       reward = {
         id: uid("rw"),
         userId: user.id,
-        channel,
+        channel: "telegram",
         granted: false,
         createdAt: now(),
         grantedAt: null,
@@ -56,13 +55,8 @@ export async function grantTelegramBonus(
 
     const u = draft.users.find((x) => x.id === user.id);
     if (u) {
-      if (channel === "telegram") {
-        u.telegramId = externalId;
-        u.telegramUsername = username;
-      } else {
-        u.vkId = externalId;
-        u.vkUsername = username;
-      }
+      u.telegramId = externalId;
+      u.telegramUsername = username;
       u.credits += amount;
     }
     return { granted: true, already: false, credits: amount };
@@ -104,7 +98,7 @@ export async function referralCount(userId: string): Promise<number> {
 }
 
 /* ------------------------------------------------------------------ */
-/* Generation charging (shared by the website and the messenger bots)  */
+/* Generation charging (shared by the website and the messenger bot)  */
 /* ------------------------------------------------------------------ */
 
 export type ChargeOutcome =
@@ -113,9 +107,6 @@ export type ChargeOutcome =
 
 /**
  * Decide how a generation is paid for and mutate the balance accordingly.
- *
- * `scope: "all"` is the free trial that renders every style at once; while the
- * test "unlimited" switch is on nothing is consumed at all.
  */
 export async function authorizeGeneration(
   user: User,
@@ -152,11 +143,10 @@ export async function refundGeneration(user: User, consumed: "trial" | "credit" 
 }
 
 /** Which subscription bonuses have already been granted to a user. */
-export async function grantedRewards(userId: string): Promise<{ telegram: boolean; vk: boolean }> {
+export async function grantedRewards(userId: string): Promise<{ telegram: boolean }> {
   const d = await db();
   return {
     telegram: !!d.rewards.find((r) => r.userId === userId && r.channel === "telegram" && r.granted),
-    vk: !!d.rewards.find((r) => r.userId === userId && r.channel === "vk" && r.granted),
   };
 }
 

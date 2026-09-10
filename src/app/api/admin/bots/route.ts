@@ -21,20 +21,7 @@ const KEYS = [
   "telegram_mini_app_url",
   "telegram_webhook_secret",
   "telegram_channel_id",
-  "vk_group_id",
-  "vk_access_token",
-  "vk_callback_secret",
-  "vk_confirmation_token",
-  "vk_verify_signature",
-  "vk_mini_app_id",
-  "vk_app_verify_token",
-  "max_bot_token",
-  "max_bot_username",
-  "max_base_url",
-  "max_webhook_secret",
   "channel_telegram_url",
-  "channel_vk_url",
-  "channel_max_url",
 ];
 
 function mask(v: string): string {
@@ -43,7 +30,7 @@ function mask(v: string): string {
   return `${v.slice(0, 4)}…${v.slice(-4)}`;
 }
 
-/** Bot configuration + live status (tokens are returned masked). */
+/** Telegram Bot configuration + live status (tokens are returned masked). */
 export async function GET(req: NextRequest) {
   try {
     await requireAdmin(req);
@@ -84,7 +71,6 @@ export async function PUT(req: NextRequest) {
   for (const k of KEYS) {
     if (!(k in body)) continue;
     const v = typeof body[k] === "string" ? body[k].trim() : String(body[k] ?? "").trim();
-    // The UI shows masked values; an unchanged mask must not wipe a secret.
     if (v.includes("…")) continue;
     await setSetting(k, v);
     changed.push(k);

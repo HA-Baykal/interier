@@ -1,8 +1,7 @@
 /**
- * Platform-neutral vocabulary for the messenger bots.
+ * Neutral vocabulary for the Telegram bot.
  *
- * Telegram, VK and MAX have very different wire formats, so the engine only ever
- * sees `BotInbound` and only ever produces `BotOutbound`. Adapters translate.
+ * The engine sees `BotInbound` and produces `BotOutbound`.
  */
 
 import { BotPlatform, Locale } from "../types";
@@ -13,7 +12,7 @@ export type BotInbound = {
   platform: BotPlatform;
   /** Where the reply must go (chat / dialog id, always string). */
   chatId: string;
-  /** Messenger user id (numeric in all three platforms, kept as string). */
+  /** Telegram user id (numeric, kept as string). */
   externalId: string;
   username?: string | null;
   displayName?: string | null;
@@ -38,12 +37,11 @@ export type BotButton =
 
 export type BotOutbound = {
   text?: string;
-  /** Telegram: HTML markup is used for captions. Others strip it. */
+  /** Telegram: HTML markup is used for captions. */
   html?: boolean;
   buttons?: BotButton[][];
   /** Public (absolute) URL of an image to attach. */
   photoUrl?: string | null;
-  /** Send the photo without its caption (MAX/VK render captions differently). */
   caption?: string;
   /** Replace an earlier message instead of posting a new one. */
   editMessageId?: string | null;
@@ -52,7 +50,7 @@ export type BotOutbound = {
 
 export type BotReply = {
   messages: BotOutbound[];
-  /** Short toast for a pressed button (Telegram/VK/MAX support this). */
+  /** Short toast for a pressed button. */
   toast?: string | null;
   /**
    * Long-running work (a real generation) executed *after* the webhook has been

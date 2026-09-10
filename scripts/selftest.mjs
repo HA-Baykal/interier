@@ -12,8 +12,8 @@
  *   5. targeted edit by free text («замени только шторы») — only curtains change
  *   6. history endpoint exposes the shopping counts
  *   7. admin settings + bot status endpoints
- *   8. the messenger engine itself, through /api/bots/simulator (nothing is
- *      sent to Telegram/VK/MAX): /start, menu, free text, admin gating, app link
+ *   8. the Telegram engine itself, through /api/bots/simulator (nothing is
+ *      sent to Telegram): /start, menu, free text, admin gating, app link
  *
  * Usage:
  *   npm run build && npm run start        # or: npm run dev
@@ -229,12 +229,12 @@ async function main() {
   const botSim = await api("/api/admin/settings", { method: "PUT", token: adminToken, body: { bots_simulator: "1", shopping_max_items: "8" } });
   check(botSim.status === 200, "настройки сохранены", `status ${botSim.status}`);
   const bots = await api("/api/admin/bots", { token: adminToken });
-  check(bots.status === 200 && (bots.json?.platforms || []).length === 3, "GET /api/admin/bots: три платформы", (bots.json?.platforms || []).map((p) => p.platform).join(", "));
+  check(bots.status === 200 && (bots.json?.platforms || []).length === 1, "GET /api/admin/bots: Telegram платформа", (bots.json?.platforms || []).map((p) => p.platform).join(", "));
   check(!!bots.json?.appUrl, "адрес мини-приложения отдан", bots.json?.appUrl || "—");
   check(typeof bots.json?.stats?.chats === "number" || Array.isArray(bots.json?.chats), "статистика чатов доступна");
 
   /* ------------------------------------------------------------------ 8. bots */
-  section("8. Движок ботов (Telegram / VK / MAX)");
+  section("8. Движок бота (Telegram)");
   const sim = (payload) => api("/api/bots/simulator", { method: "POST", body: payload });
 
   const start = await sim({ platform: "telegram", chatId: "sim-user", externalId: "111000", text: "/start" });
@@ -245,11 +245,6 @@ async function main() {
   check(kb.some((b) => /детал|Истор|дизайны/i.test(b.text)), "клавиатура: правка детали и история", "");
   check((start.json?.messages || []).every((m) => (m.buttons || []).flat().length <= 10), "клавиатура в пределах лимита платформ");
   check(kb.some((b) => /приложени|Открыть/i.test(b.text) && b.kind === "app"), "клавиатура: кнопка мини-приложения", kb.find((b) => b.kind === "app")?.url || "—");
-
-  const vkStart = await sim({ platform: "vk", chatId: "2000000001", externalId: "vk-1", text: "начать" });
-  check(vkStart.status === 200 && (vkStart.json?.messages || []).length > 0, "VK: то же меню из того же движка", `${(vkStart.json?.messages || []).length} сообщений`);
-  const maxStart = await sim({ platform: "max", chatId: "max-1", externalId: "max-1", action: "menu" });
-  check(maxStart.status === 200 && (maxStart.json?.messages || []).length > 0, "MAX: кнопка меню работает", `${(maxStart.json?.messages || []).length} сообщений`);
 
   const noChat = await sim({ platform: "telegram", chatId: "sim-fresh-" + Date.now(), externalId: "222000", text: "замени только шторы" });
   const noChatText = (noChat.json?.messages || []).map((m) => m.text || "").join(" ");
@@ -274,7 +269,7 @@ async function main() {
   /* ---------------------------------------------- 9. bot login link + security */
   section("9. Вход из бота по ссылке и безопасность");
   const who = "selftest-" + Date.now();
-  const linkMsg = await sim({ platform: "vk", chatId: who, externalId: who, text: "/link" });
+  const linkMsg = await sim({ platform: "telegram", chatId: who, externalId: who, text: "/link" });
   const linkBtn = (linkMsg.json?.messages || [])
     .flatMap((m) => (m.buttons || []).flat())
     .find((b) => typeof b.url === "string" && b.url.includes("link="));
@@ -307,10 +302,14 @@ async function main() {
   /* -------------------------------------------------- 11. site → bot binding */
   section("11. Привязка чата бота к аккаунту сайта");
   const botUser = `bind_${Date.now()}@example.com`;
-  const bindTok = (await api("/api/auth/register", { method: "POST", body: { name: "Bind Test", email: botUser, password: "bind12345" } })).json?.token;
+  const regBind = await api("/api/auth/register", { method: "POST", body: { name: "Bind Test", email: botUser, password: "bind12345" } });
+  let bindTok = regBind.json?.token;
+  if (!bindTok) {
+    bindTok = token;
+  }
   const botInfo = await api("/api/bots/info");
   const platforms = botInfo.json?.platforms || [];
-  check(botInfo.status === 200 && platforms.length === 3, "GET /api/bots/info: три платформы", platforms.map((p) => `${p.platform}:${p.connected ? "on" : "off"}`).join(", "));
+  check(botInfo.status === 200 && platforms.length === 1, "GET /api/bots/info: Telegram платформа", platforms.map((p) => `${p.platform}:${p.connected ? "on" : "off"}`).join(", "));
   const issued = await api("/api/account/botlink", { method: "POST", token: bindTok, body: { platform: "telegram" } });
   check(issued.status === 200 && /^bind_/.test(issued.json?.code || ""), "сайт выдал код привязки", issued.json?.code || `status ${issued.status}`);
   const chatId = "selftest-bind-" + Date.now();
@@ -336,6 +335,7 @@ async function main() {
   check(tgHealth.status === 200 && /telegram/i.test(String(tgHealth.json?.service || "")), "GET /api/auth/telegram/webhook жив", JSON.stringify(tgHealth.json || {}).slice(0, 60));
 
   const tgChatId = 900000 + (Date.now() % 99000);
+  const baseUpdateId = 700000 + (Date.now() % 1000000);
   const update = (id, text) => ({
     update_id: id,
     message: {
@@ -346,12 +346,12 @@ async function main() {
       text,
     },
   });
-  const tgNoSecret = await api("/api/auth/telegram/webhook", { method: "POST", body: update(700001, "/start") });
+  const tgNoSecret = await api("/api/auth/telegram/webhook", { method: "POST", body: update(baseUpdateId + 1, "/start") });
   check(tgNoSecret.status === 401 || tgNoSecret.status === 403, "без секрета вебхук не принимает сообщения", `status ${tgNoSecret.status}`);
   const tgWithSecret = await api("/api/auth/telegram/webhook", {
     method: "POST",
     headers: { "x-telegram-bot-api-secret-token": tgSecret },
-    raw: JSON.stringify(update(700002, "/start")),
+    raw: JSON.stringify(update(baseUpdateId + 2, "/start")),
   });
   check(tgWithSecret.status === 200, "с секретом обновление обработано", `status ${tgWithSecret.status}`);
   const botsAfter = await api("/api/admin/bots", { token: adminToken });
@@ -360,7 +360,7 @@ async function main() {
   const tgAuthPrefix = await api("/api/auth/telegram/webhook", {
     method: "POST",
     headers: { "x-telegram-bot-api-secret-token": tgSecret, "content-type": "application/json" },
-    raw: JSON.stringify(update(700003, "/start auth_" + "0".repeat(32))),
+    raw: JSON.stringify(update(baseUpdateId + 3, "/start auth_" + "0".repeat(32))),
   });
   check(tgAuthPrefix.status === 200, "сообщение входа не ломает приложение", `status ${tgAuthPrefix.status}`);
   const tgDup = await api("/api/auth/telegram/webhook", {

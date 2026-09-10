@@ -8,23 +8,20 @@ import { db } from "@/lib/db";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Container = "telegram" | "vk" | "max" | "web";
+type Container = "telegram" | "web";
 
 function detectContainer(searchParams: Record<string, string | string[] | undefined>, ua: string): Container {
   const hint = typeof searchParams.c === "string" ? searchParams.c.toLowerCase() : "";
-  if (hint === "telegram" || hint === "vk" || hint === "max") return hint;
+  if (hint === "telegram") return "telegram";
   const s = (ua || "").toLowerCase();
   if (s.includes("telegram")) return "telegram";
-  if (s.includes("vkwebapp") || s.includes("vkmobile") || s.includes("vkios") || s.includes("andvk")) return "vk";
-  if (s.includes("maxenger") || s.includes("mxsdk") || s.includes(" max/") || s.includes("maxmobile")) return "max";
-  // Bot links carry ?link=<token>, whose chat type is stored with the token.
-  return typeof searchParams.link === "string" ? "web" : "web";
+  return "web";
 }
 
 /**
- * The Interier application opened from Telegram / VK / MAX.
+ * The Interier application opened from Telegram / Web.
  *
- * Auth comes from the messenger (signed initData or a one-time bot link), so the
+ * Auth comes from Telegram (signed initData or a one-time bot link), so the
  * page renders straight into the user's account — no login form for bot users.
  */
 export default async function AppPage({
@@ -63,9 +60,7 @@ export default async function AppPage({
       referralCode: user.referralCode,
       referredBy: user.referredBy,
       telegramId: user.telegramId,
-      vkId: user.vkId,
       telegramGranted: rewards.telegram,
-      vkGranted: rewards.vk,
       isAdmin: user.isAdmin,
       referralCount: await referralCount(user.id),
     };

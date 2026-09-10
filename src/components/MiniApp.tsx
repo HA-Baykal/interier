@@ -1,13 +1,12 @@
 "use client";
 
 /**
- * Interier as a messenger application.
+ * Interier as a Telegram Mini App.
  *
  * This is the screen a user sees when they tap «📱 Открыть приложение» in the
- * Telegram bot (Mini App), in VK or in MAX. It is authenticated by the
- * messenger itself — Telegram via signed `initData`, VK/MAX via a one-time link
- * token the bot sends — so there is no second account, no password and no
- * email prompt. Everything the website can do is here: photo → style → design,
+ * Telegram bot (Mini App). It is authenticated by Telegram via signed `initData`
+ * or a one-time link token the bot sends — so there is no second account, no password
+ * and no email prompt. Everything the website can do is here: photo → style → design,
  * the shopping list of details with marketplace links, targeted edits by
  * words, history, bonuses, referrals, and the admin section for the owner.
  */
@@ -66,7 +65,7 @@ export default function MiniApp({
 }: {
   initialUser: ClientUser | null;
   styles: ClientStyle[];
-  container: "telegram" | "vk" | "max" | "web";
+  container: "telegram" | "web";
 }) {
   const { t, locale, setLocale } = useLocale();
   const [user, setUser] = useState<ClientUser | null>(initialUser);
@@ -589,46 +588,28 @@ export default function MiniApp({
               </div>
             </div>
 
-            {(user.telegramGranted === false || user.vkGranted === false) && (
+            {user.telegramGranted === false && (
               <div className="app-card">
                 <div style={{ fontWeight: 700 }}>{t("rewards_title")}</div>
                 <div className="small muted" style={{ marginTop: 4 }}>
                   {t("rewards_demo_note")}
                 </div>
                 <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                  {!user.telegramGranted && (
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      onClick={async () => {
-                        const r = await fetch("/api/rewards/verify", {
-                          method: "POST",
-                          headers: { ...authHeaders(), "Content-Type": "application/json" },
-                          body: JSON.stringify({ channel: "telegram", externalId: user.telegramId ?? undefined }),
-                        });
-                        const d = await r.json().catch(() => ({}));
-                        setNotice(d?.granted ? t("rewards_connected") : t("rewards_connected"));
-                        await refreshMe();
-                      }}
-                    >
-                      ✈️ {t("rewards_connect")}
-                    </button>
-                  )}
-                  {!user.vkGranted && (
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      onClick={async () => {
-                        const r = await fetch("/api/rewards/verify", {
-                          method: "POST",
-                          headers: { ...authHeaders(), "Content-Type": "application/json" },
-                          body: JSON.stringify({ channel: "vk", externalId: user.vkId ?? undefined }),
-                        });
-                        await r.json().catch(() => ({}));
-                        await refreshMe();
-                      }}
-                    >
-                      💬 {t("rewards_connect")}
-                    </button>
-                  )}
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={async () => {
+                      const r = await fetch("/api/rewards/verify", {
+                        method: "POST",
+                        headers: { ...authHeaders(), "Content-Type": "application/json" },
+                        body: JSON.stringify({ channel: "telegram", externalId: user.telegramId ?? undefined }),
+                      });
+                      const d = await r.json().catch(() => ({}));
+                      setNotice(d?.granted ? t("rewards_connected") : t("rewards_connected"));
+                      await refreshMe();
+                    }}
+                  >
+                    ✈️ {t("rewards_connect")}
+                  </button>
                 </div>
               </div>
             )}

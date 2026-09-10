@@ -8,11 +8,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Redeem the one-time link a bot sent (`/app`) into a web session.
+ * Redeem the one-time link a bot sent (`/app` or `/link`) into a web session.
  *
- * This is what makes VK and MAX behave like Telegram's Mini App: the messenger
- * opens our `/app?link=…`, the token is exchanged for a session, and the user
- * lands in an already-authenticated account with the same history and balance.
+ * The bot opens our `/app?link=…`, the token is exchanged for a session, and the
+ * user lands in an already-authenticated account with the same history and balance.
  */
 export async function POST(req: NextRequest) {
   await ensureBootSafe();

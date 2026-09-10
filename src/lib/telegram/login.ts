@@ -182,7 +182,7 @@ export async function pollTelegramLogin(input: { id: string; secret: string; own
       } else user = linked;
       if (!user) {
         user = { id: candidateId, email: null, passwordHash: "!", name: person.name, createdAt: Date.now(), credits: 0, trialUsed: false,
-          telegramId: null, telegramUsername: null, vkId: null, vkUsername: null, referralCode: `TG${candidateId.replace(/[^a-f0-9]/gi, "").slice(-24).toUpperCase()}`,
+          telegramId: null, telegramUsername: null, referralCode: `TG${candidateId.replace(/[^a-f0-9]/gi, "").slice(-24).toUpperCase()}`,
           referredBy: null, isAdmin: false, origin: "telegram" };
         draft.users.push(user);
         const referrer = ticket.referralCode ? draft.users.find(candidate => candidate.id !== user!.id && candidate.referralCode.toLowerCase() === ticket.referralCode!.toLowerCase()) : undefined;

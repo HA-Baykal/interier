@@ -85,7 +85,7 @@ test("concurrent local mutations and one-time bonuses do not lose or double-spen
   await store.mutate((d) => { d.users.push({ ...TEST_USER }); });
   const spent = await Promise.all(Array.from({ length: 12 }, () => billing.spendCredit(TEST_USER.id)));
   assert.equal(spent.filter(Boolean).length, TEST_USER.credits);
-  const bonuses = await Promise.all(Array.from({ length: 12 }, () => billing.grantTelegramBonus(TEST_USER, "telegram", 1, "test")));
+  const bonuses = await Promise.all(Array.from({ length: 12 }, () => billing.grantTelegramBonus(TEST_USER, 1, "test")));
   assert.equal(bonuses.filter((b) => b.granted).length, 1);
   assert.equal((await store.db()).users[0].credits, 1);
 });

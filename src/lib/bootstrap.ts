@@ -80,8 +80,6 @@ export async function ensureAdmin(): Promise<{ email: string; created: boolean; 
         trialUsed: true,
         telegramId: null,
         telegramUsername: null,
-        vkId: null,
-        vkUsername: null,
         referralCode,
         referredBy: null,
         isAdmin: true,

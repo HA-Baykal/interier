@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * Production readiness doctor for the messenger apps.
+ * Production readiness doctor for the Telegram bot and app.
  *
  *   node scripts/doctor.mjs --base https://interier-fmbx.onrender.com
  *   node scripts/doctor.mjs --base http://127.0.0.1:3000 --admin admin@interier.ru:admin123
  *
- * It checks the *running deployment* the way Telegram/VK/MAX will see it: is the
+ * It checks the *running deployment* the way Telegram will see it: is the
  * public URL https, does /app answer and load the WebApp SDK, is the webhook
  * registered on the right host, is it protected by a secret, do getMe calls
  * succeed, are shopping links and the vision model configured, and whether the
@@ -81,7 +81,7 @@ async function main() {
       "warn",
       "https",
       `адрес ${BASE} без HTTPS`,
-      "Telegram, VK и MAX принимают вебхук только на HTTPS: поставьте домен + сертификат (Caddy/nginx или хостинг с авто-сертификатом)"
+      "Telegram принимает вебхук только на HTTPS: поставьте домен + сертификат (Caddy/nginx или хостинг с авто-сертификатом)"
     );
 
   /* --- 3. mini app ------------------------------------------------------- */
@@ -128,12 +128,10 @@ async function main() {
     const name = p.platform.toUpperCase();
     if (!p.configured) {
       add(
-        p.platform === "telegram" ? "fail" : "warn",
+        "fail",
         name,
-        p.platform === "telegram" ? "токен бота не задан" : "не настроен (подключайте вторым/третьим шагом)",
-        p.platform === "telegram"
-          ? "@BotFather → /newbot → токен впишите в /admin → «Боты» → telegram_bot_token"
-          : `/admin → «Боты» → ${p.platform === "vk" ? "vk_access_token + vk_group_id" : "max_bot_token"}`
+        "токен бота не задан",
+        "@BotFather → /newbot → токен впишите в /admin → «Боты» → telegram_bot_token"
       );
       continue;
     }

@@ -1,7 +1,7 @@
 import { db, mutate } from "./db";
 import type { DbShape, User, Generation, BotChat, Referral } from "./types";
 
-export type UserOrigin = "web" | "telegram" | "vk" | "max";
+export type UserOrigin = "web" | "telegram";
 
 export type AdminUserView = {
   id: string;
@@ -16,12 +16,6 @@ export type AdminUserView = {
   telegramId: number | null;
   telegramUsername: string | null;
   telegramLinked: boolean;
-  vkId: number | null;
-  vkUsername: string | null;
-  vkLinked: boolean;
-  maxId: number | null;
-  maxUsername: string | null;
-  maxLinked: boolean;
   referralCode: string;
   referredBy: string | null;
   referralCount: number;
@@ -30,8 +24,6 @@ export type AdminUserView = {
   generationsByOrigin: {
     web: number;
     telegram: number;
-    vk: number;
-    max: number;
   };
 };
 
@@ -39,20 +31,16 @@ export type AdminUsersStats = {
   total: number;
   web: number;
   telegram: number;
-  vk: number;
-  max: number;
   admins: number;
   totalCredits: number;
   totalGenerations: number;
 };
 
 export function detectUserOrigin(u: User): UserOrigin {
-  if (u.origin === "web" || u.origin === "telegram" || u.origin === "vk" || u.origin === "max") {
+  if (u.origin === "web" || u.origin === "telegram") {
     return u.origin;
   }
   if (u.telegramId && !u.email) return "telegram";
-  if (u.vkId && !u.email) return "vk";
-  if (u.maxId && !u.email) return "max";
   return "web";
 }
 
@@ -74,13 +62,9 @@ export function buildAdminUsersView(d: DbShape): { stats: AdminUsersStats; users
     const generationsByOrigin = {
       web: userGens.filter((g: Generation) => !g.origin || g.origin === "web").length,
       telegram: userGens.filter((g: Generation) => g.origin === "telegram").length,
-      vk: userGens.filter((g: Generation) => g.origin === "vk").length,
-      max: userGens.filter((g: Generation) => g.origin === "max").length,
     };
 
     const telegramLinked = !!u.telegramId || chats.some((c: BotChat) => c.platform === "telegram" && c.userId === u.id);
-    const vkLinked = !!u.vkId || chats.some((c: BotChat) => c.platform === "vk" && c.userId === u.id);
-    const maxLinked = !!u.maxId || chats.some((c: BotChat) => c.platform === "max" && c.userId === u.id);
 
     const referralCount =
       referrals.filter((r: Referral) => r.referrerId === u.id && r.rewarded).length ||
@@ -99,12 +83,6 @@ export function buildAdminUsersView(d: DbShape): { stats: AdminUsersStats; users
       telegramId: u.telegramId,
       telegramUsername: u.telegramUsername,
       telegramLinked,
-      vkId: u.vkId,
-      vkUsername: u.vkUsername,
-      vkLinked,
-      maxId: u.maxId ?? null,
-      maxUsername: u.maxUsername ?? null,
-      maxLinked,
       referralCode: u.referralCode,
       referredBy: u.referredBy,
       referralCount,
@@ -119,16 +97,12 @@ export function buildAdminUsersView(d: DbShape): { stats: AdminUsersStats; users
 
   let webCount = 0;
   let tgCount = 0;
-  let vkCount = 0;
-  let maxCount = 0;
   let adminCount = 0;
   let totalCredits = 0;
 
   for (const u of users) {
     if (u.origin === "web") webCount++;
     else if (u.origin === "telegram") tgCount++;
-    else if (u.origin === "vk") vkCount++;
-    else if (u.origin === "max") maxCount++;
     if (u.isAdmin) adminCount++;
     totalCredits += Math.max(0, u.credits || 0);
   }
@@ -137,8 +111,6 @@ export function buildAdminUsersView(d: DbShape): { stats: AdminUsersStats; users
     total: users.length,
     web: webCount,
     telegram: tgCount,
-    vk: vkCount,
-    max: maxCount,
     admins: adminCount,
     totalCredits,
     totalGenerations: gens.length,

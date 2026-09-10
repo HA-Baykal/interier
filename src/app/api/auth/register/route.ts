@@ -70,8 +70,6 @@ async function register(req: NextRequest) {
       trialUsed: false,
       telegramId: null,
       telegramUsername: null,
-      vkId: null,
-      vkUsername: null,
       referralCode: draft.users.some((u) => u.referralCode === newReferralCode) ? `${newReferralCode}-${uid().slice(0, 8)}` : newReferralCode,
       referredBy,
       isAdmin: false,

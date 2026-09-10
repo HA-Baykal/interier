@@ -1,9 +1,5 @@
 /**
- * Bot persistence: chat state, messenger ⇄ account linking, one-time web tokens.
- *
- * Bots create the *same* users the website does, so a design made in Telegram is
- * visible in the web account and vice versa — that is what "the bot is an app"
- * means here: one account, one balance, one history, many front-ends.
+ * Telegram Bot persistence: chat state, Telegram ⇄ account linking, one-time web tokens.
  */
 
 import { db, mutate, now, uid } from "../db";
@@ -14,8 +10,6 @@ import { isOwnerTelegramId, linkTtlMs, ownerIds } from "./config";
 
 const USER_FIELD = {
   telegram: { id: "telegramId", username: "telegramUsername" },
-  vk: { id: "vkId", username: "vkUsername" },
-  max: { id: "maxId", username: "maxUsername" },
 } as const;
 
 export function externalIdToNumber(id: string): number | null {
@@ -23,28 +17,27 @@ export function externalIdToNumber(id: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Find the account that owns this messenger identity. */
-export async function findUserByExternal(platform: BotPlatform, externalId: string): Promise<User | null> {
+/** Find the account that owns this Telegram identity. */
+export async function findUserByExternal(platform: BotPlatform = "telegram", externalId: string): Promise<User | null> {
   const d = await db();
-  const field = USER_FIELD[platform].id;
   return (
     d.users.find((u) => {
-      const v = (u as unknown as Record<string, unknown>)[field];
+      const v = u.telegramId;
       return v !== null && v !== undefined && String(v) === String(externalId);
     }) || null
   );
 }
 
 /**
- * Create the account a messenger identity gets on first contact.
+ * Create the account a Telegram user gets on first contact.
  * `referralCode` comes from a deep link (t.me/bot?start=ref_ABC123).
  */
 export async function createBotUser(
-  platform: BotPlatform,
+  platform: BotPlatform = "telegram",
   externalId: string,
   opts: { username?: string | null; displayName?: string | null; referralCode?: string | null; locale?: Locale | null }
 ): Promise<{ user: User; created: boolean }> {
-  const existing = await findUserByExternal(platform, externalId);
+  const existing = await findUserByExternal("telegram", externalId);
   if (existing) return { user: existing, created: false };
 
   const freeCredits = await getSettingNumber("free_credits", 0);
@@ -57,31 +50,22 @@ export async function createBotUser(
     const verifiedAt = now();
     const user: User = {
       id,
-      // No email: the messenger identity IS the account credential, and it is
-      // marked verified below so the same account can sign in on the website.
       email: null,
       passwordHash: hashPassword(uid("botpw")),
       name: (opts.displayName || opts.username || `User ${handle}`).slice(0, 48),
       createdAt: now(),
       credits: freeCredits,
       trialUsed: false,
-      telegramId: platform === "telegram" ? externalIdToNumber(externalId) : null,
-      telegramUsername: platform === "telegram" ? opts.username ?? null : null,
-      vkId: platform === "vk" ? externalIdToNumber(externalId) : null,
-      vkUsername: platform === "vk" ? opts.username ?? null : null,
-      maxId: platform === "max" ? externalIdToNumber(externalId) : null,
-      maxUsername: platform === "max" ? opts.username ?? null : null,
-      origin: platform,
+      telegramId: externalIdToNumber(externalId),
+      telegramUsername: opts.username ?? null,
+      origin: "telegram",
       prefLocale: opts.locale ?? null,
       referralCode,
       referredBy: null,
       isAdmin: false,
-      // The messenger identity was proven by the platform itself (signed
-      // initData / webhook sender), so the account counts as verified for the
-      // website and the mini app as well.
-      verifiedIdentities: [{ provider: platform, subject: String(externalId), verifiedAt }],
+      verifiedIdentities: [{ provider: "telegram", subject: String(externalId), verifiedAt }],
       identityVerifiedAt: verifiedAt,
-      identityVerifiedBy: platform,
+      identityVerifiedBy: "telegram",
     };
     d.users.push(user);
   });
@@ -89,11 +73,11 @@ export async function createBotUser(
   const created = (await db()).users.find((u) => u.id === id)!;
 
   if (opts.referralCode) await applyReferralFromBot(created, opts.referralCode);
-  if (platform === "telegram" && (await isOwnerTelegramId(externalId))) {
+  if (await isOwnerTelegramId(externalId)) {
     await setUserAdmin(created.id, true);
     created.isAdmin = true;
   } else {
-    const owners = await ownerIds(platform);
+    const owners = await ownerIds("telegram");
     if (owners.has(String(externalId))) {
       await setUserAdmin(created.id, true);
       created.isAdmin = true;
@@ -103,14 +87,8 @@ export async function createBotUser(
   return { user: created, created: true };
 }
 
-/**
- * Record that the account's messenger identity was proven by the platform
- * itself (the update arrived from Telegram/VK/MAX with that user id). This is
- * what lets a bot-created or bot-linked account generate on the website: the
- * same verification rule applies everywhere, there is no second-class login.
- */
 export async function markIdentityVerified(
-  platform: BotPlatform,
+  platform: BotPlatform = "telegram",
   userId: string,
   externalId: string,
   username?: string | null
@@ -118,18 +96,16 @@ export async function markIdentityVerified(
   await mutate((d) => {
     const u = d.users.find((x) => x.id === userId);
     if (!u) return;
-    const fields = USER_FIELD[platform];
     const numeric = externalIdToNumber(externalId);
-    const bag = u as unknown as Record<string, unknown>;
-    if (numeric !== null) bag[fields.id] = numeric;
-    if (username) bag[fields.username] = username;
+    if (numeric !== null) u.telegramId = numeric;
+    if (username) u.telegramUsername = username;
     if (!u.verifiedIdentities) u.verifiedIdentities = [];
     const subject = String(externalId);
-    if (!u.verifiedIdentities.some((v) => v.provider === platform && v.subject === subject)) {
-      u.verifiedIdentities.push({ provider: platform, subject, verifiedAt: now() });
+    if (!u.verifiedIdentities.some((v) => v.provider === "telegram" && v.subject === subject)) {
+      u.verifiedIdentities.push({ provider: "telegram", subject, verifiedAt: now() });
     }
     if (!u.identityVerifiedAt) u.identityVerifiedAt = now();
-    if (!u.identityVerifiedBy) u.identityVerifiedBy = platform;
+    if (!u.identityVerifiedBy) u.identityVerifiedBy = "telegram";
   });
 }
 
@@ -150,10 +126,10 @@ async function setUserAdmin(userId: string, isAdmin: boolean) {
   });
 }
 
-/** Grant admin to the configured messenger owners (called on every bot start). */
-export async function ensureOwnerAdmin(platform: BotPlatform, externalId: string, userId: string) {
-  const owners = await ownerIds(platform);
-  const isOwner = owners.has(String(externalId)) || (platform === "telegram" && (await isOwnerTelegramId(externalId)));
+/** Grant admin to the configured Telegram owner (called on every bot start). */
+export async function ensureOwnerAdmin(platform: BotPlatform = "telegram", externalId: string, userId: string) {
+  const owners = await ownerIds("telegram");
+  const isOwner = owners.has(String(externalId)) || (await isOwnerTelegramId(externalId));
   if (!isOwner) return false;
   const user = (await db()).users.find((u) => u.id === userId);
   if (user?.isAdmin) return true;
@@ -202,7 +178,7 @@ export type ChatPatch = Partial<
 >;
 
 export async function getChat(
-  platform: BotPlatform,
+  platform: BotPlatform = "telegram",
   chatId: string,
   identity?: { externalId?: string; username?: string | null; displayName?: string | null; locale?: Locale | null }
 ): Promise<BotChat> {
@@ -218,7 +194,7 @@ export async function getChat(
   }
   const chat: BotChat = {
     id: uid("chat"),
-    platform,
+    platform: "telegram",
     chatId: String(chatId),
     externalId: String(identity?.externalId ?? chatId),
     username: identity?.username ?? null,
@@ -244,7 +220,7 @@ export async function getChat(
   return chat;
 }
 
-export async function updateChat(platform: BotPlatform, chatId: string, patch: ChatPatch): Promise<void> {
+export async function updateChat(platform: BotPlatform = "telegram", chatId: string, patch: ChatPatch): Promise<void> {
   await mutate((d) => {
     const chat = d.botChats.find((c) => c.platform === platform && c.chatId === String(chatId));
     if (!chat) return;
@@ -252,18 +228,15 @@ export async function updateChat(platform: BotPlatform, chatId: string, patch: C
   });
 }
 
-/** Attach a messenger chat to an account (and remember the identity there). */
-export async function linkChatToUser(platform: BotPlatform, chatId: string, userId: string, externalId: string) {
+/** Attach a Telegram chat to an account. */
+export async function linkChatToUser(platform: BotPlatform = "telegram", chatId: string, userId: string, externalId: string) {
   await mutate((d) => {
     const chat = d.botChats.find((c) => c.platform === platform && c.chatId === String(chatId));
     if (chat) chat.userId = userId;
     const user = d.users.find((u) => u.id === userId);
     if (!user) return;
-    const f = USER_FIELD[platform];
     const n = externalIdToNumber(externalId);
-    if (f.id === "telegramId") user.telegramId = n ?? user.telegramId;
-    if (f.id === "vkId") user.vkId = n ?? user.vkId;
-    if (f.id === "maxId") user.maxId = n ?? user.maxId;
+    user.telegramId = n ?? user.telegramId;
   });
 }
 
@@ -276,11 +249,11 @@ export async function chatCount(): Promise<number> {
 }
 
 /* ------------------------------------------------------------------ */
-/* One-time link tokens (messenger → web / mini app)                   */
+/* One-time link tokens (Telegram → web / mini app)                   */
 /* ------------------------------------------------------------------ */
 
 export async function createLinkToken(
-  platform: BotPlatform,
+  platform: BotPlatform = "telegram",
   chatId: string,
   externalId: string,
   userId: string | null
@@ -289,7 +262,6 @@ export async function createLinkToken(
   const ttl = await linkTtlMs();
   const expiresAt = now() + ttl;
   await mutate((d) => {
-    // Keep the store tidy: drop expired/used tokens.
     d.botLinks = d.botLinks.filter((l) => l.expiresAt > now() && !l.usedAt).slice(-500);
     d.botLinks.push({ token, platform, chatId, externalId, userId, createdAt: now(), expiresAt, usedAt: null });
   });
@@ -297,11 +269,9 @@ export async function createLinkToken(
 }
 
 /**
- * Bind token: the *website* asks for a deep link, the user opens the bot with it
- * (`t.me/bot?start=bind_…` or a plain `bind_…` message in VK/MAX), and the chat
- * is attached to the existing account instead of creating a new one.
+ * Bind token: `t.me/bot?start=bind_…`.
  */
-export async function createBindToken(platform: BotPlatform, userId: string): Promise<{ token: string; expiresAt: number }> {
+export async function createBindToken(platform: BotPlatform = "telegram", userId: string): Promise<{ token: string; expiresAt: number }> {
   const token = "bind_" + uid("").replace(/-/g, "").slice(0, 24);
   const ttl = await linkTtlMs();
   const expiresAt = now() + ttl;
@@ -348,21 +318,21 @@ export async function consumeLinkToken(token: string): Promise<LinkTokenResult> 
   return {
     ok: true,
     userId: rec.userId,
-    platform: rec.platform === "web" ? "telegram" : rec.platform,
+    platform: "telegram",
     chatId: rec.chatId,
     externalId: rec.externalId,
   };
 }
 
-/** Chats that may receive an admin broadcast (owner action, one send each). */
+/** Chats that may receive an admin broadcast. */
 export async function broadcastTargets(platform?: BotPlatform): Promise<BotChat[]> {
   const d = await db();
-  return d.botChats.filter((c) => (!platform || c.platform === platform) && c.userId);
+  return d.botChats.filter((c) => c.userId);
 }
 
 export async function botStats() {
   const d = await db();
-  const byPlatform: Record<string, number> = { telegram: 0, vk: 0, max: 0 };
+  const byPlatform: Record<string, number> = { telegram: 0 };
   let linked = 0;
   for (const c of d.botChats) {
     byPlatform[c.platform] = (byPlatform[c.platform] || 0) + 1;
@@ -372,12 +342,12 @@ export async function botStats() {
     chats: d.botChats.length,
     linked,
     byPlatform,
-    fromBots: d.users.filter((u) => u.origin && u.origin !== "web").length,
-    generationsFromBots: d.generations.filter((g) => g.origin && g.origin !== "web").length,
+    fromBots: d.users.filter((u) => u.origin === "telegram").length,
+    generationsFromBots: d.generations.filter((g) => g.origin === "telegram").length,
   };
 }
 
-/** Locale the user prefers (explicit choice in the bot > account > ru). */
+/** Locale the user prefers. */
 export async function chatLocale(chat: BotChat): Promise<Locale> {
   if (chat.locale) return chat.locale;
   if (chat.userId) {

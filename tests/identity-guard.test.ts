@@ -31,7 +31,7 @@ function req(origin = "https://app.example.test") {
 }
 
 test("legacy social IDs, reward flags and self-entered details are not verified identities", () => {
-  const legacy = { ...TEST_USER, isAdmin: false, identityVerifiedAt: null, identityVerifiedBy: null, telegramId: 123, vkId: 456 };
+  const legacy = { ...TEST_USER, isAdmin: false, identityVerifiedAt: null, identityVerifiedBy: null, telegramId: 123 };
   assert.equal(isIdentityVerified(legacy), false);
   assert.equal(isIdentityVerified({ ...legacy, identityVerifiedAt: 1 }), false);
   assert.equal(isIdentityVerified({ ...legacy, identityVerifiedAt: Date.now() + 60000, identityVerifiedBy: "email" }), false);

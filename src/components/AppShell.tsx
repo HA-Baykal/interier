@@ -82,8 +82,8 @@ export default function AppShell({
     },
   ];
 
-  // Messenger mini apps (/app) render their own chrome — no site header/footer,
-  // otherwise the Telegram/VK/MAX UI would be nested inside our navigation.
+  // Telegram Mini App (/app) renders its own chrome — no site header/footer,
+  // otherwise the Telegram UI would be nested inside our navigation.
   const isEmbed = pathname.startsWith("/app");
   if (isEmbed) {
     return (

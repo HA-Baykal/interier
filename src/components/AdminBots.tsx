@@ -1,20 +1,14 @@
 "use client";
 
 /**
- * Admin panel: messenger bots (Telegram / VK / MAX).
- *
- * One screen for the whole bot platform: tokens and app URLs, live webhook
- * status, the Mini App deep link, one-click webhook registration, the recent
- * chats that the bot has seen, and a simulator that runs the real conversation
- * engine and prints exactly what the bot would answer — without sending
- * anything to a user.
+ * Admin panel: Telegram Bot & Mini App.
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { useLocale } from "./locale-context";
 import { authHeaders } from "@/lib/client-auth";
 
-type Platform = "telegram" | "vk" | "max";
+type Platform = "telegram";
 
 type Status = {
   platform: Platform;
@@ -66,31 +60,6 @@ const FIELDS: { group: string; icon: string; items: Field[] }[] = [
       { key: "channel_telegram_url", label: "bots_channel_url", placeholder: "https://t.me/interier_design" },
     ],
   },
-  {
-    group: "bots_group_vk",
-    icon: "💬",
-    items: [
-      { key: "vk_group_id", label: "bots_vk_group", placeholder: "2000000001" },
-      { key: "vk_access_token", label: "bots_vk_token", type: "password", hint: "bots_vk_token_hint" },
-      { key: "vk_callback_secret", label: "bots_vk_secret", type: "password" },
-      { key: "vk_confirmation_token", label: "bots_vk_confirm", hint: "bots_vk_confirm_hint" },
-      { key: "vk_verify_signature", label: "bots_vk_verify", type: "check", hint: "bots_vk_verify_hint" },
-      { key: "vk_mini_app_id", label: "bots_vk_appid", placeholder: "6331191" },
-      { key: "vk_app_verify_token", label: "bots_vk_app_token", type: "password", hint: "bots_vk_app_token_hint" },
-      { key: "channel_vk_url", label: "bots_channel_url", placeholder: "https://vk.com/interier_design" },
-    ],
-  },
-  {
-    group: "bots_group_max",
-    icon: "🟦",
-    items: [
-      { key: "max_bot_token", label: "bots_max_token", type: "password", hint: "bots_max_token_hint" },
-      { key: "max_bot_username", label: "bots_max_username", placeholder: "interier_design" },
-      { key: "max_base_url", label: "bots_max_base", placeholder: "https://platform-api2.max.ru", hint: "bots_max_base_hint" },
-      { key: "max_webhook_secret", label: "bots_tg_secret", type: "password" },
-      { key: "channel_max_url", label: "bots_channel_url", placeholder: "https://max.ru/interier_design" },
-    ],
-  },
 ];
 
 export default function AdminBots() {
@@ -100,7 +69,6 @@ export default function AdminBots() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [simPlatform, setSimPlatform] = useState<Platform>("telegram");
   const [simText, setSimText] = useState("/start");
   const [simOut, setSimOut] = useState<OutMsg[] | null>(null);
   const [simToast, setSimToast] = useState<string | null>(null);
@@ -182,7 +150,7 @@ export default function AdminBots() {
       const res = await fetch("/api/admin/bots/test", {
         method: "POST",
         headers: { ...authHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: simPlatform, text: simText, chatId: "admin-test", externalId: "admin-test" }),
+        body: JSON.stringify({ platform: "telegram", text: simText, chatId: "admin-test", externalId: "admin-test" }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -256,12 +224,11 @@ export default function AdminBots() {
       {/* platform cards */}
       <div className="admin-grid mt">
         {(data?.platforms || []).map((p) => {
-          const ico = p.platform === "telegram" ? "✈️" : p.platform === "vk" ? "💬" : "🟦";
           return (
             <div className="stat-card" key={p.platform} style={{ padding: 16 }}>
               <div className="row" style={{ justifyContent: "space-between" }}>
                 <b>
-                  {ico} {p.platform.toUpperCase()}
+                  ✈️ TELEGRAM
                 </b>
                 <span className="chip">{p.configured && p.enabled ? "✅" : p.configured ? "⏸" : "⚠️"}</span>
               </div>
@@ -269,12 +236,8 @@ export default function AdminBots() {
                 {p.me?.username ? `@${p.me.username.replace(/^@/, "")}` : t("admin_bots_not_connected")}
                 <br />
                 {t("admin_bots_webhook")}: <code>{p.webhook || `${data?.baseUrl || ""}${data?.webhookPaths?.[p.platform] || ""}`}</code>
-                {p.platform === "telegram" && (
-                  <>
-                    <br />
-                    {t("bots_tg_shared_webhook")}
-                  </>
-                )}
+                <br />
+                {t("bots_tg_shared_webhook")}
                 {p.detail && (
                   <>
                     <br />
@@ -356,11 +319,6 @@ export default function AdminBots() {
           {t("admin_bots_sim_hint")}
         </p>
         <div className="row mt" style={{ flexWrap: "wrap", gap: 10 }}>
-          <select className="input" style={{ width: 160 }} value={simPlatform} onChange={(e) => setSimPlatform(e.target.value as Platform)}>
-            <option value="telegram">Telegram</option>
-            <option value="vk">VK</option>
-            <option value="max">MAX</option>
-          </select>
           <input
             className="input"
             style={{ flex: 1, minWidth: 220 }}
@@ -411,7 +369,7 @@ export default function AdminBots() {
           <div className="mt">
             {data.chats.map((c) => (
               <div className="hist-item" key={`${c.platform}:${c.chatId}`}>
-                <span className="chip">{c.platform === "telegram" ? "✈️" : c.platform === "vk" ? "💬" : "🟦"}</span>
+                <span className="chip">✈️</span>
                 <div className="grow">
                   <div style={{ fontWeight: 600 }}>{c.user}</div>
                   <div className="small muted">

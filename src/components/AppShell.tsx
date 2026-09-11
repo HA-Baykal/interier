@@ -142,35 +142,12 @@ export default function AppShell({
 
   const navItems = [
     { href: "/", label: t(locale, "nav_landing"), show: true },
-    {
-      href: "/studio",
-      label: t(locale, "nav_studio"),
-      show: true,
-    },
+    { href: "/studio", label: t(locale, "nav_studio"), show: true },
     { href: "/gallery", label: t(locale, "nav_gallery"), show: true },
     { href: "/#pricing", label: t(locale, "nav_pricing"), show: true },
-    {
-      href: "/account",
-      label: t(locale, "nav_account"),
-      show: !!user,
-    },
-    {
-      href: "/admin",
-      label: t(locale, "nav_admin"),
-      show: !!user && user.isAdmin,
-    },
+    { href: "/account", label: t(locale, "nav_account"), show: true },
+    { href: "/admin", label: t(locale, "nav_admin"), show: !!user && user.isAdmin },
   ];
-
-  // Telegram Mini App (/app) renders its own chrome — no site header/footer,
-  // otherwise the Telegram UI would be nested inside our navigation.
-  const isEmbed = pathname.startsWith("/app");
-  if (isEmbed) {
-    return (
-      <LocaleContext.Provider value={{ locale, t: (k, v) => t(locale, k, v), setLocale }}>
-        <main>{children}</main>
-      </LocaleContext.Provider>
-    );
-  }
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";

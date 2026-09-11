@@ -1,73 +1,25 @@
-import MiniApp from "@/components/MiniApp";
-import { resolvePageUser } from "@/lib/auth";
-import { activeStyles } from "@/lib/config";
-import { grantedRewards, referralCount } from "@/lib/billing";
-import { ClientStyle, ClientUser } from "@/components/types";
-import { db } from "@/lib/db";
+import { redirect } from "next/navigation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Container = "telegram" | "web";
-
-function detectContainer(searchParams: Record<string, string | string[] | undefined>, ua: string): Container {
-  const hint = typeof searchParams.c === "string" ? searchParams.c.toLowerCase() : "";
-  if (hint === "telegram") return "telegram";
-  const s = (ua || "").toLowerCase();
-  if (s.includes("telegram")) return "telegram";
-  return "web";
-}
-
 /**
- * The Interier application opened from Telegram / Web.
- *
- * Auth comes from Telegram (signed initData or a one-time bot link), so the
- * page renders straight into the user's account — no login form for bot users.
+ * When /app is opened (from Telegram Menu Button or legacy links),
+ * redirect directly to the main landing page with all navigation tabs.
  */
 export default async function AppPage({
   searchParams,
 }: {
   searchParams: Record<string, string | string[] | undefined>;
 }) {
-  const query = typeof searchParams.ses === "string" ? searchParams.ses : null;
-  const user = await resolvePageUser(query || (typeof searchParams.link === "string" ? null : null));
-  const container = detectContainer(searchParams, "");
-
-  const styles: ClientStyle[] = (await activeStyles()).map((s) => ({
-    id: s.id,
-    slug: s.slug,
-    nameRu: s.name.ru,
-    nameEn: s.name.en,
-    descRu: s.description.ru,
-    descEn: s.description.en,
-    preview: s.preview,
-    accent: s.config.accent,
-    filter: s.config.filter,
-    tint: s.config.tint,
-    vignette: s.config.vignette,
-    active: s.active,
-  }));
-
-  let clientUser: ClientUser | null = null;
-  if (user) {
-    const rewards = await grantedRewards(user.id);
-    clientUser = {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      credits: user.credits,
-      trialUsed: user.trialUsed,
-      referralCode: user.referralCode,
-      referredBy: user.referredBy,
-      telegramId: user.telegramId,
-      telegramGranted: rewards.telegram,
-      isAdmin: user.isAdmin,
-      referralCount: await referralCount(user.id),
-    };
-  } else if (typeof searchParams.link === "string") {
-    // A link token is redeemed client-side; show the app shell right away.
-    void db();
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(searchParams || {})) {
+    if (typeof value === "string") {
+      params.set(key, value);
+    } else if (Array.isArray(value)) {
+      for (const v of value) params.append(key, v);
+    }
   }
-
-  return <MiniApp initialUser={clientUser} styles={styles} container={container} />;
+  const qs = params.toString();
+  redirect(qs ? `/?${qs}` : "/");
 }

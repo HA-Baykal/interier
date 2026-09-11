@@ -1177,15 +1177,17 @@ button {
 /* Keep the document viewport at device width: an overflowing desktop header
    would otherwise also displace fixed image controls on mobile browsers. */
 @media (max-width: 900px) {
-  .header-inner { height: auto; min-height: 64px; flex-wrap: wrap; gap: 10px; padding-top: 10px; padding-bottom: 10px; }
-  .header-right { min-width: 0; max-width: 100%; flex-wrap: wrap; gap: 6px; }
-  .header-right > .chip { display: none; }
-  .nav { order: 3; flex-basis: 100%; min-width: 0; overflow-x: auto; padding-bottom: 2px; }
-  .nav a { flex-shrink: 0; }
+  .header-inner { height: auto; min-height: 56px; flex-wrap: wrap; gap: 8px; padding-top: 8px; padding-bottom: 8px; }
+  .header-right { min-width: 0; max-width: 100%; flex-wrap: nowrap; gap: 6px; }
+  .header-right > .chip { display: inline-flex; font-size: 11px; padding: 4px 8px; }
+  .nav { order: 3; flex-basis: 100%; min-width: 0; overflow-x: auto; white-space: nowrap; display: flex; gap: 4px; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav a { flex-shrink: 0; font-size: 13.5px; padding: 6px 11px; }
 }
 @media (max-width: 640px) {
-  .header-right .btn { padding: 7px 9px; font-size: 12px; }
-  .header-right .lang-switch button { padding: 4px 7px; }
+  .header-right .btn { padding: 6px 9px; font-size: 12px; }
+  .header-right .lang-switch button { padding: 4px 7px; font-size: 11px; }
+  .nav a { font-size: 12.5px; padding: 5px 9px; }
   .row > .field { min-width: 0 !important; max-width: 100%; }
   .model-lab-grid > form { min-width: 0; }
   .image-viewer-heading > div { min-width: 0; }

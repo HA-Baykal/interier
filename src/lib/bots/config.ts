@@ -57,7 +57,7 @@ export async function publicBaseUrl(hostHint?: string | null): Promise<string> {
 export async function appUrl(hostHint?: string | null): Promise<string> {
   const base = await publicBaseUrl(hostHint);
   const tg = await getSettingOrEnv("telegram_mini_app_url");
-  return (tg || `${base}/app`).replace(/\/+$/, "");
+  return (tg || base).replace(/\/+$/, "");
 }
 
 export async function linkTtlMs(): Promise<number> {

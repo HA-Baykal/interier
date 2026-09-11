@@ -50,7 +50,7 @@ test("bot /start flow returns main menu with Mini App button and no text-design 
   const firstRow = buttons[0];
   assert.equal(firstRow[0]?.kind, "app");
   assert.ok(firstRow[0]?.text.includes("Открыть приложение"));
-  assert.ok(firstRow[0]?.url.includes("/app"));
+  assert.ok(firstRow[0]?.url.startsWith("http"));
 
   // Has history and referral buttons
   const secondRow = buttons[1];

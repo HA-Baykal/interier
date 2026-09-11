@@ -35,6 +35,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const locale = getLocale();
   return (
     <html lang={locale}>
+      <head>
+        <script src="https://telegram.org/js/telegram-web-app.js" data-tg-sdk />
+      </head>
       <body>
         <AppShell
           initialLocale={locale}

@@ -7,7 +7,7 @@ import { LocaleContext } from "./locale-context";
 import { ClientUser } from "./types";
 import { Locale } from "@/lib/types";
 import { t } from "@/lib/i18n";
-import { clearToken, authHeaders, withToken } from "@/lib/client-auth";
+import { clearToken, authHeaders, withToken, saveToken } from "@/lib/client-auth";
 
 function Logo({ locale }: { locale: Locale }) {
   return (
@@ -36,12 +36,91 @@ export default function AppShell({
   const [user, setUser] = useState<ClientUser | null>(initialUser);
   const [locale, setLocale] = useState<Locale>(initialLocale);
 
-  // Keep the header balance fresh after generation / rewards.
+  // Telegram WebApp initialization and auto-auth
   useEffect(() => {
-    fetch("/api/auth/me", { headers: authHeaders() })
-      .then((r) => r.json())
-      .then((d) => d.user && setUser(d.user))
-      .catch(() => {});
+    let cancelled = false;
+
+    async function initTelegramAndAuth() {
+      if (typeof window === "undefined") return;
+
+      // Initialize Telegram WebApp if present
+      const tg = (window as unknown as { Telegram?: { WebApp?: any } })?.Telegram?.WebApp;
+      if (tg) {
+        try {
+          tg.ready?.();
+          tg.expand?.();
+          tg.setHeaderColor?.("#0b0d12");
+          tg.setBackgroundColor?.("#0b0d12");
+        } catch {
+          /* ignore */
+        }
+      }
+
+      // Check URL query parameters: ?link=... or ?ses=...
+      const params = new URLSearchParams(window.location.search);
+      const link = params.get("link");
+      if (link) {
+        try {
+          const res = await fetch("/api/auth/link", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: link }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && data.token) {
+            saveToken(data.token);
+            const cleanUrl = new URL(window.location.href);
+            cleanUrl.searchParams.delete("link");
+            window.history.replaceState({}, "", cleanUrl.toString());
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      const ses = params.get("ses");
+      if (ses) {
+        saveToken(ses);
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete("ses");
+        window.history.replaceState({}, "", cleanUrl.toString());
+      }
+
+      // If Telegram initData is present, authenticate with it
+      const initData = tg?.initData;
+      if (initData) {
+        try {
+          const res = await fetch("/api/auth/telegram", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ initData }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && data.token) {
+            saveToken(data.token);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      // Refresh /api/auth/me to populate user state
+      try {
+        const r = await fetch("/api/auth/me", { headers: authHeaders() });
+        const d = await r.json();
+        if (!cancelled && d?.user) {
+          setUser(d.user);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    void initTelegramAndAuth();
+
+    return () => {
+      cancelled = true;
+    };
   }, [pathname]);
 
   function toggleLang(loc: Locale) {
@@ -66,7 +145,7 @@ export default function AppShell({
     {
       href: "/studio",
       label: t(locale, "nav_studio"),
-      show: !!user,
+      show: true,
     },
     { href: "/gallery", label: t(locale, "nav_gallery"), show: true },
     { href: "/#pricing", label: t(locale, "nav_pricing"), show: true },

@@ -37,6 +37,7 @@ test("identity verification is enabled for registered users", () => {
 });
 
 test("global test unlimited applies to administrators only", async () => {
+  await config.setSetting("test_unlimited", "1");
   assert.equal(await config.isUnlimitedMode({ isAdmin: false }), false);
   assert.equal(await config.isUnlimitedMode({ isAdmin: true }), true);
   await config.setSetting("test_unlimited", "0");

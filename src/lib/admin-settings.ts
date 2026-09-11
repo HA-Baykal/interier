@@ -56,7 +56,7 @@ export function adminSettingsView(d: DbShape) {
     daily_free_image_limit: values.daily_free_image_limit ?? "10",
     reward_telegram: values.reward_telegram || "1",
     reward_referral: values.reward_referral || "1",
-    test_unlimited: values.test_unlimited || "1",
+    test_unlimited: values.test_unlimited || "0",
     compatible_provider: config.compatible.provider,
     compatible_base_url: config.compatible.baseUrl,
     // Write-only field. A saved key is never sent to a browser, even an admin's.

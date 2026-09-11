@@ -316,11 +316,26 @@ export default function Studio({ user: initialUser, styles, aiConfigured, isDemo
             {user.isAdmin && !isDemo && aiConfigured && (
               <p className="small muted mt">{t("studio_provider_billing_note")}</p>
             )}
+
+            {!trialAvailable && !unlimited && user.credits <= 0 && (
+              <div className="panel mt" style={{ padding: "12px 16px", background: "rgba(239, 68, 68, 0.12)", border: "1px solid #ef4444", borderRadius: 8 }}>
+                <div style={{ fontWeight: 600, color: "#f87171", fontSize: 14 }}>
+                  ⚡ {locale === "ru" ? "Закончились доступные генерации" : "Out of generation credits"}
+                </div>
+                <p className="small muted" style={{ marginTop: 4 }}>
+                  {locale === "ru" ? "Пополните баланс, чтобы продолжить создавать дизайны." : "Top up your balance to keep generating designs."}
+                </p>
+                <a href="/account" className="btn btn-primary btn-sm" style={{ marginTop: 10, display: "inline-block" }}>
+                  💳 {locale === "ru" ? "Пополнить баланс" : "Top up credits"}
+                </a>
+              </div>
+            )}
+
             <div className="mt">
               <button
                 className="btn btn-primary"
                 style={{ width: "100%" }}
-                disabled={generating || !file}
+                disabled={generating || !file || (!trialAvailable && !unlimited && user.credits <= 0)}
                 onClick={() => generate("single")}
               >
                 {generating ? t("studio_processing") : t("studio_gen_single")}
@@ -331,7 +346,7 @@ export default function Studio({ user: initialUser, styles, aiConfigured, isDemo
                 <button
                   className="btn btn-ghost"
                   style={{ width: "100%" }}
-                  disabled={generating || !file || !verified}
+                  disabled={generating || !file}
                   onClick={() => generate("all")}
                 >
                   {generating ? t("studio_processing") : user.isAdmin && !isDemo && activeProfileEstimate !== undefined

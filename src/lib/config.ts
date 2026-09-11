@@ -158,7 +158,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   reward_telegram: "1",
   reward_referral: "1",
   generation_mode: "demo",
-  test_unlimited: "1", // unlimited generations while testing
+  test_unlimited: "0", // 0 = standard charging (1 credit per generation, 1 trial)
   compatible_provider: "genapi", // genapi | openai-compatible
   compatible_base_url: "https://api.gen-api.ru",
   compatible_api_key: "",

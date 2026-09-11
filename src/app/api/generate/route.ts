@@ -107,11 +107,11 @@ export async function POST(req: NextRequest) {
       if ((testProfile !== undefined || quality !== undefined) && current.isAdmin !== true) throw new RequestError("test_profile_forbidden", "Тестирование доступно только администратору.", 403);
       assertFreeImageBudget(d, current, targetStyles.length);
       let consumed: Generation["mode"] = "unlimited";
-      if (!unlimited || current.isAdmin !== true) {
+      if (!unlimited) {
         if (!current.trialUsed) { current.trialUsed = true; consumed = "trial"; }
         else if (scope === "all") throw new RequestError("no_trial", "Бесплатная генерация уже использована.", 403);
         else if (current.credits > 0) { current.credits--; consumed = "credit"; }
-        else throw new RequestError("no_credits", "Недостаточно генераций на балансе.", 402);
+        else throw new RequestError("no_credits", "Недостаточно генераций на балансе. Пополните баланс для продолжения.", 402);
       }
       const generations: Generation[] = plans.map(({ st, id, plan }) => ({
         id, userId: user.id, styleId: st.id, originalId: upload.id, originalUrl: upload.url,

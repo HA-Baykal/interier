@@ -24,7 +24,36 @@ export default function Account({
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.location.search.includes("payment=success")) {
-      setToast(locale === "ru" ? "🎉 Оплата прошла успешно! Баланс пополнен." : "🎉 Payment successful! Balance topped up.");
+      const params = new URLSearchParams(window.location.search);
+      const paymentId = params.get("id");
+      if (paymentId) {
+        fetch("/api/payments/verify", {
+          method: "POST",
+          headers: { ...authHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ id: paymentId }),
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.ok && data.status === "succeeded") {
+              setToast(
+                locale === "ru"
+                  ? `🎉 Оплата прошла успешно! Начислено +${data.creditsAdded} генераций.`
+                  : `🎉 Payment confirmed! Added +${data.creditsAdded} credits.`
+              );
+            } else {
+              setToast(locale === "ru" ? "🎉 Оплата принята! Баланс обновляется." : "🎉 Payment received! Updating balance.");
+            }
+            fetch("/api/auth/me", { headers: authHeaders(), cache: "no-store" })
+              .then((r) => r.json())
+              .then((d) => d.user && setUser(d.user));
+          })
+          .catch(() => {});
+      } else {
+        setToast(locale === "ru" ? "🎉 Оплата прошла успешно! Баланс пополнен." : "🎉 Payment successful! Balance topped up.");
+        fetch("/api/auth/me", { headers: authHeaders(), cache: "no-store" })
+          .then((r) => r.json())
+          .then((d) => d.user && setUser(d.user));
+      }
     }
   }, [locale]);
 

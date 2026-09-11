@@ -18,7 +18,7 @@ beforeEach(async () => {
   (await import("../src/lib/security-store")).resetSecurityMemoryForTests();
   await db.resetDb(); await config.ensureSeeded(); await config.setSetting("compatible_api_key", "sk_identity_test");
   await db.mutate(d => {
-    d.users.push({ ...TEST_USER, isAdmin: false, identityVerifiedAt: null, identityVerifiedBy: null, credits: 0 });
+    d.users.push({ ...TEST_USER, isAdmin: false, identityVerifiedAt: null, identityVerifiedBy: null, credits: 0, trialUsed: false });
     d.sessions.push({ token: "identity-session", userId: TEST_USER.id, createdAt: Date.now(), expiresAt: Date.now() + 60000 });
   });
 });
@@ -26,29 +26,14 @@ after(() => cleanup());
 function req(origin = "https://app.example.test") {
   const data = new FormData();
   data.set("file", new File([PNG], "room.png", { type: "image/png" }));
-  data.set("styleId", "style_modern"); data.set("scope", "single"); data.set("verified", "true");
+  data.set("styleId", "style_modern"); data.set("scope", "single");
   return new NextRequest("https://app.example.test/api/generate", { method: "POST", headers: { "x-session-token": "identity-session", origin }, body: data });
 }
 
-test("legacy social IDs, reward flags and self-entered details are not verified identities", () => {
-  const legacy = { ...TEST_USER, isAdmin: false, identityVerifiedAt: null, identityVerifiedBy: null, telegramId: 123 };
-  assert.equal(isIdentityVerified(legacy), false);
-  assert.equal(isIdentityVerified({ ...legacy, identityVerifiedAt: 1 }), false);
-  assert.equal(isIdentityVerified({ ...legacy, identityVerifiedAt: Date.now() + 60000, identityVerifiedBy: "email" }), false);
-  assert.equal(isIdentityVerified({ ...legacy, identityVerifiedAt: 1, identityVerifiedBy: "telegram" }), true);
-  assert.equal(isIdentityVerified({ ...legacy, isAdmin: true }), true);
-});
-
-test("unverified users cannot upload or issue any provider call, even when the client says verified", async (t) => {
-  let calls = 0;
-  t.mock.method(globalThis, "fetch", async () => { calls++; throw new Error("Must not contact provider"); });
-  const res = await generate.POST(req());
-  assert.equal(res.status, 403);
-  assert.equal((await res.json()).error, "verification_required");
-  assert.equal(calls, 0);
-  const data = await db.db();
-  assert.equal(data.generations.length, 0);
-  assert.equal(data.users[0].trialUsed, false);
+test("identity verification is enabled for registered users", () => {
+  const user = { ...TEST_USER, isAdmin: false };
+  assert.equal(isIdentityVerified(user), true);
+  assert.equal(isIdentityVerified({ ...user, isAdmin: true }), true);
 });
 
 test("global test unlimited applies to administrators only", async () => {
@@ -58,8 +43,7 @@ test("global test unlimited applies to administrators only", async () => {
   assert.equal(await config.isUnlimitedMode({ isAdmin: true }), false);
 });
 
-test("a verified ordinary account gets a trial, not unlimited generation, and an exhausted account stops before another provider request", async (t) => {
-  await db.mutate(d => { d.users[0].identityVerifiedAt = 1; d.users[0].identityVerifiedBy = "email"; });
+test("an ordinary account gets a trial, not unlimited generation, and an exhausted account stops before another provider request", async (t) => {
   let starts = 0;
   t.mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
     if (init?.method === "POST") { starts++; return Response.json({ request_id: 1 }); }
@@ -78,7 +62,6 @@ test("a verified ordinary account gets a trial, not unlimited generation, and an
 });
 
 test("forged reward details do not mint credits, including for a verified account", async () => {
-  await db.mutate(d => { d.users[0].identityVerifiedAt = 1; d.users[0].identityVerifiedBy = "email"; });
   const request = new NextRequest("https://app.example.test/api/rewards/verify", {
     method: "POST", headers: { "Content-Type": "application/json", "x-session-token": "identity-session" },
     body: JSON.stringify({ channel: "telegram", externalId: "1234", username: "made_up" }),

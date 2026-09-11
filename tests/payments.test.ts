@@ -7,6 +7,7 @@ let cleanup: () => void;
 let db: typeof import("../src/lib/db");
 let config: typeof import("../src/lib/config");
 let paymentsCreateRoute: typeof import("../src/app/api/payments/create/route");
+let paymentsVerifyRoute: typeof import("../src/app/api/payments/verify/route");
 let yookassaWebhookRoute: typeof import("../src/app/api/payments/yookassa/webhook/route");
 
 before(async () => {
@@ -14,6 +15,7 @@ before(async () => {
   db = await import("../src/lib/db");
   config = await import("../src/lib/config");
   paymentsCreateRoute = await import("../src/app/api/payments/create/route");
+  paymentsVerifyRoute = await import("../src/app/api/payments/verify/route");
   yookassaWebhookRoute = await import("../src/app/api/payments/yookassa/webhook/route");
 });
 
@@ -70,6 +72,31 @@ test("test mode payment creation immediately credits user account", async () => 
 
   const updatedUser = (await db.db()).users.find((u) => u.id === "usr_buyer");
   assert.equal(updatedUser?.credits, initialCredits + target.credits);
+});
+
+test("verify endpoint checks and confirms payment status", async () => {
+  const allPackages = (await db.db()).packages;
+  const target = allPackages[0];
+
+  await db.mutate((d) => {
+    d.payments.push({
+      id: "pay_verify_1",
+      userId: "usr_buyer",
+      packageId: target.id,
+      amount: target.price,
+      credits: target.credits,
+      provider: "test",
+      status: "succeeded",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  });
+
+  const res = await paymentsVerifyRoute.POST(userReq("/api/payments/verify", { id: "pay_verify_1" }));
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.ok, true);
+  assert.equal(data.status, "succeeded");
 });
 
 test("yookassa webhook successfully credits user account on payment.succeeded", async () => {

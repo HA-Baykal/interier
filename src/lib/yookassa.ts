@@ -1,5 +1,4 @@
 import { db, mutate, uid, now } from "./db";
-import { getSetting } from "./config";
 import type { DbShape, Package, Payment, User } from "./types";
 import { RequestError } from "./errors";
 import { cleanConnectionValue } from "./env";
@@ -157,6 +156,96 @@ export async function createPaymentOrder(
     isTest: true,
     creditsAdded: pkg.credits,
   };
+}
+
+export async function verifyAndSettlePayment(
+  paymentId: string,
+  userId: string
+): Promise<{
+  ok: boolean;
+  status: string;
+  creditsAdded: number;
+  newCredits: number;
+}> {
+  const config = await getYooKassaConfig();
+  const d = await db();
+  const payment = (d.payments || []).find(
+    (p) => (p.id === paymentId || p.providerPaymentId === paymentId) && p.userId === userId
+  );
+  if (!payment) {
+    const user = d.users.find((u) => u.id === userId);
+    return { ok: false, status: "not_found", creditsAdded: 0, newCredits: user?.credits ?? 0 };
+  }
+
+  if (payment.status === "succeeded") {
+    const user = d.users.find((u) => u.id === userId);
+    return { ok: true, status: "succeeded", creditsAdded: payment.credits, newCredits: user?.credits ?? 0 };
+  }
+
+  // If provider is yookassa and we have shopId/secretKey and providerPaymentId, query YooKassa API:
+  if (payment.provider === "yookassa" && payment.providerPaymentId && config.shopId && config.secretKey) {
+    try {
+      const authHeader = "Basic " + Buffer.from(`${config.shopId}:${config.secretKey}`).toString("base64");
+      const res = await fetch(`https://api.yookassa.ru/v3/payments/${payment.providerPaymentId}`, {
+        method: "GET",
+        headers: {
+          Authorization: authHeader,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === "succeeded") {
+          const outcome = await mutate((draft: DbShape) => {
+            const p = draft.payments.find((x) => x.id === payment.id);
+            if (p && p.status !== "succeeded") {
+              p.status = "succeeded";
+              p.updatedAt = now();
+              const u = draft.users.find((x) => x.id === userId);
+              if (u) {
+                u.credits += p.credits;
+                return { creditsAdded: p.credits, newCredits: u.credits };
+              }
+            }
+            const u = draft.users.find((x) => x.id === userId);
+            return { creditsAdded: 0, newCredits: u?.credits ?? 0 };
+          });
+          return { ok: true, status: "succeeded", ...outcome };
+        } else if (data.status === "canceled") {
+          await mutate((draft: DbShape) => {
+            const p = draft.payments.find((x) => x.id === payment.id);
+            if (p) {
+              p.status = "canceled";
+              p.updatedAt = now();
+            }
+          });
+          const user = (await db()).users.find((u) => u.id === userId);
+          return { ok: false, status: "canceled", creditsAdded: 0, newCredits: user?.credits ?? 0 };
+        }
+      }
+    } catch (err) {
+      console.error("[YooKassa verify error]", err);
+    }
+  }
+
+  const user = (await db()).users.find((u) => u.id === userId);
+  return { ok: false, status: payment.status, creditsAdded: 0, newCredits: user?.credits ?? 0 };
+}
+
+export async function syncPendingPayments(userId: string): Promise<number> {
+  const d = await db();
+  const pending = (d.payments || []).filter(
+    (p) => p.userId === userId && p.status === "pending" && p.provider === "yookassa"
+  );
+  let totalAdded = 0;
+  for (const p of pending) {
+    const res = await verifyAndSettlePayment(p.id, userId);
+    if (res.ok && res.creditsAdded > 0) {
+      totalAdded += res.creditsAdded;
+    }
+  }
+  return totalAdded;
 }
 
 export async function handleYooKassaWebhookEvent(eventPayload: any): Promise<{ ok: boolean; message: string }> {

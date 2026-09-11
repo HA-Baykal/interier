@@ -136,7 +136,6 @@ export default function Studio({ user: initialUser, styles, aiConfigured, isDemo
   }
 
   async function generate(scope: "single" | "all") {
-    if (!verified) { setError(t("auth_verification_required")); return; }
     if (!file) {
       setError(t("studio_upload"));
       return;
@@ -307,14 +306,13 @@ export default function Studio({ user: initialUser, styles, aiConfigured, isDemo
           </div>
 
           <div className="panel mt">
-            {!verified && <p className="err" role="status">{t("auth_verification_required")}</p>}
             <div className="row" style={{ flexWrap: "wrap", gap: 10 }}>
               <span className="chip">{creditsLabel}</span>
               {unlimited && <span className="chip" style={{ color: "var(--success)" }}>♾️ {t("studio_test_unlimited")}</span>}
               {trialAvailable && !unlimited && <span className="chip" style={{ color: "var(--success)" }}>🎁 {t("studio_free_left")}</span>}
             </div>
 
-            {!isDemo && aiConfigured && <p className="small muted mt">{t("global_model_current")}: <strong>{activeProfileLabel}</strong></p>}
+            {user.isAdmin && !isDemo && aiConfigured && <p className="small muted mt">{t("global_model_current")}: <strong>{activeProfileLabel}</strong></p>}
             {user.isAdmin && !isDemo && aiConfigured && (
               <p className="small muted mt">{t("studio_provider_billing_note")}</p>
             )}
@@ -322,7 +320,7 @@ export default function Studio({ user: initialUser, styles, aiConfigured, isDemo
               <button
                 className="btn btn-primary"
                 style={{ width: "100%" }}
-                disabled={generating || !file || !verified}
+                disabled={generating || !file}
                 onClick={() => generate("single")}
               >
                 {generating ? t("studio_processing") : t("studio_gen_single")}

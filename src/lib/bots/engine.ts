@@ -1,24 +1,26 @@
 /**
- * Telegram conversation engine — the bot equivalent of the website.
+ * Telegram conversation engine — simplified and focused on the Mini App.
  *
- * Send a room photo, pick a style, generate, get the design *with a shopping
- * list of its details*, then keep iterating in plain words ("замени только шторы").
- * Everything is stored on the same accounts the web studio uses, so a chat is
- * just another front-end — including an admin section for the service owner
- * (auto-admin by Telegram id).
+ * Generation is routed directly into the Telegram Mini App ("📱 Открыть приложение").
+ * The bot menu provides:
+ * 1. "📱 Открыть приложение" (Telegram WebApp button opening /app)
+ * 2. "🖼 Мои дизайны" (shows user's generated designs with images & shopping links)
+ * 3. "👥 Пригласить друга" (referral link, sharing & stats)
+ * 4. "🌐 Язык / Language" (switch RU/EN)
+ * 5. "ℹ️ Как это работает" (explains how it works + app button)
+ * 6. Admin menu button for admins
+ *
+ * If a user sends a photo or text commands to the bot chat, they are guided to
+ * open the Mini App with the "📱 Открыть приложение" button.
  */
 
 import { db, mutate } from "../db";
 import { t as tr } from "../i18n";
 import { activePackages, activeStyles, generationMode, getSetting, isUnlimitedMode, setSetting } from "../config";
-import { grantTelegramBonus } from "../billing";
-import { RequestError, safeErrorMessage } from "../errors";
-import { resolveImageUrl } from "@/app/api/upload/service";
-import { Charge, GenPayload, chargeForGeneration, loadImageBytes, regenerateShopping, runInstructionEdit, runStyleGeneration } from "../generation/pipeline";
-import { parseInstruction } from "../generation/instruction";
+import { grantTelegramBonus, grantedRewards } from "../billing";
 import { categoryById } from "../marketplaces";
 import { shoppingSettings } from "../shopping";
-import { now, uid } from "../db";
+import { regenerateShopping } from "../generation/pipeline";
 import { BotChat, Generation, Locale, Style, User } from "../types";
 import { ACTION, BotButton, BotInbound, BotOutbound, BotReply, buttons } from "./types";
 import { appUrl, publicBaseUrl, telegramConfig } from "./config";
@@ -32,7 +34,8 @@ import {
   getChat,
   linkChatToUser,
   markIdentityVerified,
-  updateChat, } from "./store";
+  updateChat,
+} from "./store";
 
 type Ctx = {
   inbound: BotInbound;
@@ -115,13 +118,24 @@ export async function handleBotUpdate(inbound: BotInbound, hostHint?: string | n
       case "/web":
       case "/link":
         return linkFlow(ctx);
+      case "/history":
+      case "/designs":
+      case "/my":
+        return historyFlow(ctx);
+      case "/ref":
+      case "/referral":
+        return { messages: [await referralMessage(ctx)] };
+      case "/lang":
+      case "/language": {
+        const next: Locale = ctx.locale === "ru" ? "en" : "ru";
+        return actionFlow(ctx, `${ACTION.LANG}:${next}`);
+      }
       case "/credits":
       case "/balance":
         return { messages: [await balanceMessage(ctx)] };
-      case "/history":
-        return historyFlow(ctx);
       case "/new":
       case "/design":
+      case "/edit":
         return designFlow(ctx);
       case "/admin":
         if (!ctx.isAdmin) return { messages: [{ text: tr(ctx.locale, "bot_not_admin") }, await menu(ctx)] };
@@ -134,7 +148,7 @@ export async function handleBotUpdate(inbound: BotInbound, hostHint?: string | n
   // Connecting account: «bind_…» connects this chat to the account from the website.
   if (text.startsWith("bind_")) return bindFlow(ctx, text);
 
-  if (photos.length > 0) return photoFlow(ctx, photos[0]);
+  if (photos.length > 0) return photoFlow(ctx);
   if (inbound.action) return actionFlow(ctx, inbound.action);
   if (text) return textFlow(ctx, text);
 
@@ -160,45 +174,32 @@ async function startFlow(ctx: Ctx, arg: string): Promise<BotReply> {
   const hello = tr(locale, ctx.isAdmin ? "bot_welcome_owner" : "bot_welcome", { name });
   await updateChat(inbound.platform, ctx.chat.chatId, { step: "start", locale });
 
-  const first = !ctx.chat.lastGenerationId;
   return {
     messages: [
       { text: hello },
       await menu(ctx),
-      first
-        ? {
-            text: tr(locale, "bot_ask_photo"),
-            buttons: clampKeyboard([[{ kind: "callback", text: tr(locale, "bot_btn_design"), action: ACTION.START_DESIGN }]]),
-          }
-        : null,
-    ].filter(Boolean) as BotOutbound[],
+    ],
   };
 }
 
 async function menu(ctx: Ctx): Promise<BotOutbound> {
-  const { locale, user, isAdmin } = ctx;
+  const { locale, isAdmin } = ctx;
   const L = (k: string, v?: Record<string, string | number>) => tr(locale, k, v);
   const rows = [
-    [{ kind: "callback", text: L("bot_btn_design"), action: ACTION.START_DESIGN } as BotButton],
+    [{ kind: "app", text: "📱 " + L("bot_btn_app"), url: ctx.appLink } as BotButton],
     [
-      { kind: "callback", text: L("bot_btn_edit"), action: ACTION.ASK_INSTRUCTION } as BotButton,
-      { kind: "callback", text: L("bot_btn_history"), action: ACTION.HISTORY } as BotButton,
+      { kind: "callback", text: "🖼 " + L("bot_btn_history"), action: ACTION.HISTORY } as BotButton,
+      { kind: "callback", text: "👥 " + L("bot_btn_referral"), action: ACTION.REFERRAL } as BotButton,
     ],
     [
-      { kind: "callback", text: L("bot_btn_balance", { n: user?.credits ?? 0 }), action: ACTION.BALANCE } as BotButton,
-      { kind: "callback", text: L("bot_btn_bonus"), action: ACTION.BONUS } as BotButton,
-    ],
-    [
-      { kind: "callback", text: L("bot_btn_referral"), action: ACTION.REFERRAL } as BotButton,
       {
         kind: "callback",
         text: locale === "ru" ? "🌐 English" : "🌐 Русский",
         action: `${ACTION.LANG}:${locale === "ru" ? "en" : "ru"}`,
       } as BotButton,
+      { kind: "callback", text: "ℹ️ " + L("bot_btn_help"), action: ACTION.HELP } as BotButton,
     ],
-    [{ kind: "callback", text: L("bot_btn_help"), action: ACTION.HELP } as BotButton],
-    isAdmin ? [{ kind: "callback", text: L("bot_btn_admin"), action: ACTION.ADMIN } as BotButton] : null,
-    [{ kind: "app", text: L("bot_btn_app"), url: ctx.appLink } as BotButton],
+    isAdmin ? [{ kind: "callback", text: "🔧 " + L("bot_btn_admin"), action: ACTION.ADMIN } as BotButton] : null,
   ];
   return { text: L("bot_menu_title"), buttons: clampKeyboard(rows) };
 }
@@ -207,70 +208,58 @@ async function helpMessage(ctx: Ctx): Promise<BotOutbound> {
   const { locale } = ctx;
   const L = (k: string, v?: Record<string, string | number>) => tr(locale, k, v);
   const styles = await activeStyles();
-  const mode = await generationMode();
   return {
     text: [
-      L("app_title"),
+      `🏠 ${L("app_title")}`,
       "",
-      L("hero_subtitle"),
+      `1. 📸 ${L("how_1")} — ${L("how_1d")}`,
+      `2. 🎨 ${L("how_2")} — ${styles.map((s) => s.name[locale] || s.name.ru).join(", ")}`,
+      `3. 🛒 ${L("how_3")} — ${L("shop_subtitle")}`,
       "",
-      `1. ${L("how_1")} — ${L("how_1d")}`,
-      `2. ${L("how_2")} — ${styles.map((s) => s.name[locale]).join(", ")}`,
-      `3. ${L("how_3")} — ${L("shop_subtitle")}`,
-      "",
-      `✏️ ${L("edit_hint")}`,
-      "",
-      "/menu · /history · /credits · /app · /cancel",
-      mode === "demo" ? `⚠️ ${L("studio_demo_note")}` : "",
+      locale === "ru"
+        ? "✨ Генерация дизайна происходит прямо в Telegram Mini App. Нажмите кнопку ниже, чтобы начать:"
+        : "✨ Design generation takes place right inside our Telegram Mini App. Tap the button below to get started:",
     ]
       .filter(Boolean)
       .join("\n"),
     buttons: clampKeyboard([
-      [{ kind: "callback", text: tr(locale, "bot_btn_design"), action: ACTION.START_DESIGN }],
-      [{ kind: "app", text: tr(locale, "bot_btn_app"), url: ctx.appLink }],
+      [{ kind: "app", text: "📱 " + L("bot_btn_app"), url: ctx.appLink }],
+      [{ kind: "callback", text: "↩️ " + L("common_cancel"), action: ACTION.MENU }],
     ]),
   };
 }
 
 function designFlow(ctx: Ctx): BotReply {
-  void updateChat(ctx.inbound.platform, ctx.chat.chatId, { step: "await_photo", pendingPhotoId: null, pendingPhotoUrl: null });
-  return { messages: [{ text: tr(ctx.locale, "bot_ask_photo") }] };
-}
-
-async function photoFlow(ctx: Ctx, photo: { buffer: Buffer; mime: string }): Promise<BotReply> {
-  const { inbound, chat } = ctx;
-  const { saveUpload } = await import("@/app/api/upload/service");
-  const saved = await saveUpload(photo.buffer, photo.mime);
-  await updateChat(inbound.platform, chat.chatId, {
-    step: "await_style",
-    pendingPhotoId: saved.id,
-    pendingPhotoUrl: saved.url,
-  });
-  return { messages: [await stylePicker({ ...ctx, chat: { ...chat, pendingPhotoId: saved.id, pendingPhotoUrl: saved.url, step: "await_style" } })] };
-}
-
-async function stylePicker(ctx: Ctx): Promise<BotOutbound> {
-  const { locale, chat } = ctx;
-  const styles = await activeStyles();
-  const rows: (BotButton | null)[][] = [];
-  for (let i = 0; i < styles.length; i += 2) {
-    const pair = styles.slice(i, i + 2).map(
-      (s) => ({ kind: "callback", text: s.name[locale] || s.name.ru, action: `${ACTION.PICK_STYLE}:${s.id}` } as BotButton)
-    );
-    rows.push(pair);
-  }
-  rows.push([{ kind: "callback", text: tr(locale, "bot_all_styles"), action: ACTION.GEN_ALL }]);
-  if (!chat.pendingInstruction) {
-    rows.push([{ kind: "callback", text: "✍️ " + tr(locale, "edit_title"), action: ACTION.ASK_INSTRUCTION }]);
-  }
+  const { locale } = ctx;
   return {
-    text: [
-      tr(locale, "bot_choose_style"),
-      chat.pendingInstruction ? `✍️ ${chat.pendingInstruction}` : tr(locale, "bot_ask_instruction"),
-    ]
-      .filter(Boolean)
-      .join("\n"),
-    buttons: clampKeyboard(rows),
+    messages: [
+      {
+        text: locale === "ru"
+          ? "🎨 Создание дизайна интерьера происходит в нашем мини-приложении!\n\nНажмите кнопку ниже, чтобы открыть приложение, загрузить фото комнаты и выбрать понравившийся стиль:"
+          : "🎨 Interior design creation happens in our Mini App!\n\nTap the button below to open the app, upload your room photo, and choose your favorite style:",
+        buttons: clampKeyboard([
+          [{ kind: "app", text: "📱 " + tr(locale, "bot_btn_app"), url: ctx.appLink }],
+          [{ kind: "callback", text: "↩️ " + tr(locale, "common_cancel"), action: ACTION.MENU }],
+        ]),
+      },
+    ],
+  };
+}
+
+function photoFlow(ctx: Ctx): BotReply {
+  const { locale } = ctx;
+  return {
+    messages: [
+      {
+        text: locale === "ru"
+          ? "🎨 Создание дизайна интерьера происходит в нашем мини-приложении!\n\nНажмите кнопку ниже, чтобы открыть приложение, загрузить фото комнаты и выбрать понравившийся стиль:"
+          : "🎨 Interior design creation happens in our Mini App!\n\nTap the button below to open the app, upload your room photo, and choose your favorite style:",
+        buttons: clampKeyboard([
+          [{ kind: "app", text: "📱 " + tr(locale, "bot_btn_app"), url: ctx.appLink }],
+          [{ kind: "callback", text: "↩️ " + tr(locale, "common_cancel"), action: ACTION.MENU }],
+        ]),
+      },
+    ],
   };
 }
 
@@ -301,31 +290,20 @@ async function textFlow(ctx: Ctx, text: string): Promise<BotReply> {
     return { messages: [{ text: `📣 ${text.slice(0, 200)}` }], task };
   }
 
-  if (chat.step === "await_edit" && chat.lastGenerationId) {
-    await updateChat(inbound.platform, chat.chatId, { step: "running", editItemId: null });
-    return editFlow(ctx, chat.lastGenerationId, text);
-  }
-
-  if (chat.step === "await_instruction") {
-    await updateChat(inbound.platform, chat.chatId, { step: "await_style", pendingInstruction: text });
-    return { messages: [await stylePicker({ ...ctx, chat: { ...chat, pendingInstruction: text } })] };
-  }
-
-  // A finished design exists → free text means "change exactly this".
-  if (chat.lastGenerationId && (chat.step === "idle" || chat.step === "start" || chat.step === "await_style")) {
-    const parsed = parseInstruction(text);
-    if (parsed && parsed.targetCategories.length) {
-      return editFlow(ctx, chat.lastGenerationId, text);
-    }
-    if (chat.pendingPhotoId || chat.step === "await_style") {
-      await updateChat(inbound.platform, chat.chatId, { pendingInstruction: text, step: "await_style" });
-      return { messages: [await stylePicker({ ...ctx, chat: { ...chat, pendingInstruction: text } })] };
-    }
-  }
-
-  // Otherwise remember the wish and ask for the photo.
-  await updateChat(inbound.platform, chat.chatId, { pendingInstruction: text, step: "await_photo" });
-  return { messages: [{ text: `✍️ ${tr(locale, "bot_ask_photo")}` }] };
+  return {
+    messages: [
+      {
+        text: locale === "ru"
+          ? "🎨 Создание дизайна и редактирование интерьера доступны в нашем мини-приложении!\n\nНажмите кнопку ниже, чтобы открыть приложение:"
+          : "🎨 Interior design creation and editing happen in our Mini App!\n\nTap the button below to open the app:",
+        buttons: clampKeyboard([
+          [{ kind: "app", text: "📱 " + tr(locale, "bot_btn_app"), url: ctx.appLink }],
+          [{ kind: "callback", text: "↩️ " + tr(locale, "common_cancel"), action: ACTION.MENU }],
+        ]),
+      },
+      await menu(ctx),
+    ],
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -342,68 +320,25 @@ async function actionFlow(ctx: Ctx, action: string): Promise<BotReply> {
       return { messages: [await menu(ctx)] };
 
     case ACTION.START_DESIGN:
+    case ACTION.PICK_STYLE:
+    case ACTION.GEN_ALL:
       return designFlow(ctx);
 
-    case ACTION.PICK_STYLE: {
-      const styles = await activeStyles();
-      const style = styles.find((s) => s.id === arg);
-      if (!style) return { messages: [{ text: tr(locale, "common_error") }] };
-      return generateFlow(ctx, [style], "single");
-    }
-
-    case ACTION.GEN_ALL: {
-      const styles = await activeStyles();
-      if (!styles.length) return { messages: [{ text: tr(locale, "common_error") }] };
-      return generateFlow(ctx, styles, "all");
-    }
-
-    case ACTION.ASK_INSTRUCTION: {
-      if (!chat.lastGenerationId) {
-        if (chat.pendingPhotoId) {
-          await updateChat(inbound.platform, chat.chatId, { step: "await_instruction" });
-          return { messages: [{ text: tr(locale, "bot_ask_instruction") }] };
-        }
-        return { messages: [{ text: tr(locale, "bot_no_design") }, await menu(ctx)] };
-      }
-      const gen = (await db()).generations.find((g) => g.id === chat.lastGenerationId);
-      const items = gen?.shopping?.items || [];
-      await updateChat(inbound.platform, chat.chatId, { step: "await_edit" });
-      if (!items.length) return { messages: [{ text: tr(locale, "bot_edit_ask") }] };
+    case ACTION.ASK_INSTRUCTION:
+    case ACTION.EDIT_ITEM:
       return {
         messages: [
           {
-            text: `${tr(locale, "bot_edit_pick")}\n${tr(locale, "bot_edit_ask")}`,
+            text: locale === "ru"
+              ? "✏️ Редактирование и детализация интерьера доступны в мини-приложении. Нажмите кнопку ниже:"
+              : "✏️ Editing and fine-tuning are available in the Mini App. Tap below:",
             buttons: clampKeyboard([
-              ...items.slice(0, 8).map((i) => [
-                {
-                  kind: "callback",
-                  text: `${categoryById(i.category)?.emoji || "🛍️"} ${(locale === "ru" ? i.name : i.nameEn || i.name).slice(0, 24)}`,
-                  action: `${ACTION.EDIT_ITEM}:${i.id}`,
-                } as BotButton,
-              ]),
-              [{ kind: "callback", text: "✍️ " + tr(locale, "bot_btn_edit"), action: `${ACTION.EDIT_ITEM}:free` }],
-              [{ kind: "callback", text: tr(locale, "common_cancel"), action: ACTION.MENU }],
+              [{ kind: "app", text: "📱 " + tr(locale, "bot_btn_app"), url: ctx.appLink }],
+              [{ kind: "callback", text: "↩️ " + tr(locale, "common_cancel"), action: ACTION.MENU }],
             ]),
           },
         ],
       };
-    }
-
-    case ACTION.EDIT_ITEM: {
-      if (arg === "free") {
-        await updateChat(inbound.platform, chat.chatId, { step: "await_edit" });
-        return { messages: [{ text: tr(locale, "bot_edit_ask") }] };
-      }
-      const gen = (await db()).generations.find((g) => g.id === chat.lastGenerationId);
-      const item = gen?.shopping?.items.find((i) => i.id === arg);
-      if (!gen || !item) return { messages: [{ text: tr(locale, "bot_items_none") }] };
-      const wish =
-        locale === "ru"
-          ? `замени только ${item.name.toLowerCase()} — ${item.query}; остальное не меняй`
-          : `replace only the ${item.nameEn || item.name} (${item.queryEn || item.query}), keep everything else unchanged`;
-      await updateChat(inbound.platform, chat.chatId, { step: "running", editItemId: item.id });
-      return editFlow(ctx, gen.id, wish, [item.category]);
-    }
 
     case ACTION.SHOW_SHOPPING: {
       const gen = await findGeneration(ctx, arg);
@@ -434,18 +369,8 @@ async function actionFlow(ctx: Ctx, action: string): Promise<BotReply> {
       return { messages: await designMessages(ctx, gen) };
     }
 
-    case ACTION.REGEN: {
-      if (!chat.lastGenerationId) return designFlow(ctx);
-      const gen = (await db()).generations.find((g) => g.id === chat.lastGenerationId);
-      if (!gen) return designFlow(ctx);
-      const styles = await activeStyles();
-      const style = styles.find((s) => s.id === gen.styleId) || styles[0];
-      const src = gen.originalUrl || resolveImageUrl(gen.originalId);
-      // Retry always starts from the *original* photo, not from the edit.
-      await updateChat(inbound.platform, chat.chatId, { pendingPhotoUrl: src, pendingPhotoId: gen.originalId, step: "await_style" });
-      if (!style) return { messages: [{ text: tr(locale, "common_error") }] };
-      return generateFlow({ ...ctx, chat: { ...chat, pendingPhotoUrl: src, pendingPhotoId: gen.originalId } }, [style], "single");
-    }
+    case ACTION.REGEN:
+      return designFlow(ctx);
 
     case ACTION.PUBLISH:
     case ACTION.UNPUBLISH: {
@@ -560,7 +485,8 @@ async function balanceMessage(ctx: Ctx): Promise<BotOutbound> {
   return {
     text: tr(locale, "bot_balance", { n: user?.credits ?? 0, unlimited: unlimited ? "ON ♾️" : "OFF" }),
     buttons: clampKeyboard([
-      [{ kind: "callback", text: tr(locale, "bot_btn_bonus"), action: ACTION.BONUS }],
+      [{ kind: "app", text: "📱 " + tr(locale, "bot_btn_app"), url: ctx.appLink }],
+      [{ kind: "callback", text: "🎁 " + tr(locale, "bot_btn_bonus"), action: ACTION.BONUS }],
       ...packs.slice(0, 4).map(
         (p) =>
           [
@@ -571,7 +497,7 @@ async function balanceMessage(ctx: Ctx): Promise<BotOutbound> {
             } as BotButton,
           ]
       ),
-      [{ kind: "app", text: tr(locale, "bot_btn_app"), url: ctx.appLink }],
+      [{ kind: "callback", text: "↩️ " + tr(locale, "common_cancel"), action: ACTION.MENU }],
     ]),
   };
 }
@@ -580,17 +506,15 @@ async function bonusMessage(ctx: Ctx): Promise<BotOutbound> {
   const { locale, user } = ctx;
   const [tg, ref] = await Promise.all([getSetting("reward_telegram"), getSetting("reward_referral")]);
   const tgUrl = (await getSetting("channel_telegram_url")) || "https://t.me/interier_ai";
-  const { grantedRewards } = await import("../billing");
-  const granted = user ? await grantedRewards(user.id) : { telegram: false };
+  const granted = user ? (await grantedRewards(user.id)).telegram : false;
 
   return {
     text: tr(locale, "bot_bonus", { tg: tg || "1", ref: ref || "1" }),
     buttons: clampKeyboard([
-      [
-        { kind: "link", text: `✈️ ${tr(locale, "rewards_telegram")}${granted.telegram ? " ✓" : ""}`, url: tgUrl },
-      ],
-      user && !granted.telegram ? [{ kind: "callback", text: `🎁 ${tr(locale, "bot_bonus_claim")} · Telegram`, action: `${ACTION.BONUS}:tg` }] : null,
-      [{ kind: "callback", text: tr(locale, "bot_btn_balance", { n: user?.credits ?? 0 }), action: ACTION.BALANCE }],
+      [{ kind: "link", text: `✈️ ${tr(locale, "rewards_telegram")}${granted ? " ✓" : ""}`, url: tgUrl }],
+      user && !granted ? [{ kind: "callback", text: `🎁 ${tr(locale, "bot_bonus_claim")} · Telegram`, action: `${ACTION.BONUS}:tg` }] : null,
+      [{ kind: "app", text: "📱 " + tr(locale, "bot_btn_app"), url: ctx.appLink }],
+      [{ kind: "callback", text: "↩️ " + tr(locale, "common_cancel"), action: ACTION.MENU }],
     ]),
   };
 }
@@ -605,7 +529,10 @@ async function bonusClaim(ctx: Ctx, channel: "telegram" = "telegram"): Promise<B
       messages: [
         {
           text: `✈️ ${tr(locale, "rewards_telegram_desc")}`,
-          buttons: clampKeyboard([[{ kind: "link", text: tr(locale, "rewards_telegram_url"), url: (await getSetting("channel_telegram_url")) || "https://t.me/interier_ai" }]]),
+          buttons: clampKeyboard([
+            [{ kind: "link", text: tr(locale, "rewards_telegram_url"), url: (await getSetting("channel_telegram_url")) || "https://t.me/interier_ai" }],
+            [{ kind: "callback", text: "↩️ " + tr(locale, "common_cancel"), action: ACTION.MENU }],
+          ]),
         },
       ],
     };
@@ -624,31 +551,73 @@ async function referralMessage(ctx: Ctx): Promise<BotOutbound> {
   const url = `${base}/register?ref=${code}`;
   const tg = await telegramConfig();
   const botStart = tg.botUsername ? `https://t.me/${tg.botUsername}?start=ref_${code}` : url;
+  const d = await db();
+  const invitedCount = d.referrals.filter((r) => r.referrerId === user?.id && r.rewarded).length;
+
+  const shareText = encodeURIComponent(
+    locale === "ru"
+      ? "Создай крутой дизайн интерьера по фото своей комнаты с помощью нейросети!"
+      : "Redesign your room interior with AI!"
+  );
+
   return {
-    text: tr(locale, "bot_referral", { n: ref || "1", url }),
+    text: [
+      `👥 ${locale === "ru" ? "Пригласить друга" : "Invite Friends"}`,
+      "",
+      tr(locale, "bot_referral", { n: ref || "1", url: botStart }),
+      "",
+      locale === "ru"
+        ? `📊 Приглашено друзей: ${invitedCount}`
+        : `📊 Friends invited: ${invitedCount}`,
+    ].join("\n"),
     buttons: clampKeyboard([
-      [{ kind: "link", text: `🔗 ${url.replace(/^https?:\/\//, "")}`, url }],
-      tg.botUsername ? [{ kind: "link", text: `✈️ @${tg.botUsername}`, url: botStart }] : null,
+      [{ kind: "link", text: `🚀 ${locale === "ru" ? "Поделиться ссылкой" : "Share link"}`, url: `https://t.me/share/url?url=${encodeURIComponent(botStart)}&text=${shareText}` }],
+      [{ kind: "app", text: "📱 " + tr(locale, "bot_btn_app"), url: ctx.appLink }],
+      [{ kind: "callback", text: "↩️ " + tr(locale, "common_cancel"), action: ACTION.MENU }],
     ]),
   };
 }
 
 async function historyFlow(ctx: Ctx): Promise<BotReply> {
   const { locale, user } = ctx;
-  if (!user) return { messages: [{ text: tr(locale, "bot_no_design") }] };
+  if (!user) {
+    return {
+      messages: [
+        {
+          text: tr(locale, "bot_history_empty"),
+          buttons: clampKeyboard([
+            [{ kind: "app", text: "📱 " + tr(locale, "bot_btn_app"), url: ctx.appLink }],
+            [{ kind: "callback", text: "↩️ " + tr(locale, "common_cancel"), action: ACTION.MENU }],
+          ]),
+        },
+      ],
+    };
+  }
   const list = (await db())
     .generations.filter((g) => g.userId === user.id)
     .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, 9);
-  if (!list.length) return { messages: [{ text: tr(locale, "bot_history_empty") }, await menu(ctx)] };
+  if (!list.length) {
+    return {
+      messages: [
+        {
+          text: tr(locale, "bot_history_empty"),
+          buttons: clampKeyboard([
+            [{ kind: "app", text: "📱 " + tr(locale, "bot_btn_app"), url: ctx.appLink }],
+            [{ kind: "callback", text: "↩️ " + tr(locale, "common_cancel"), action: ACTION.MENU }],
+          ]),
+        },
+      ],
+    };
+  }
 
   const styles = await activeStyles();
   return {
     messages: [
       {
         text: tr(locale, "bot_history_title"),
-        buttons: clampKeyboard(
-          list.map((g) => [
+        buttons: clampKeyboard([
+          ...list.map((g) => [
             {
               kind: "callback",
               text: `${g.kind === "edit" ? "✏️" : "🎨"} ${(styles.find((s) => s.id === g.styleId)?.name[locale] || "?").slice(0, 18)} · ${new Date(
@@ -656,8 +625,10 @@ async function historyFlow(ctx: Ctx): Promise<BotReply> {
               ).toLocaleDateString(locale === "ru" ? "ru-RU" : "en-US")}`,
               action: `${ACTION.VIEW_GEN}:${g.id}`,
             } as BotButton,
-          ])
-        ),
+          ]),
+          [{ kind: "app", text: "📱 " + tr(locale, "bot_btn_app"), url: ctx.appLink }],
+          [{ kind: "callback", text: "↩️ " + tr(locale, "common_cancel"), action: ACTION.MENU }],
+        ]),
       },
     ],
   };
@@ -677,8 +648,6 @@ async function bindFlow(ctx: Ctx, code: string): Promise<BotReply> {
   const user = (await db()).users.find((u) => u.id === res.userId) || null;
   if (!user) return { messages: [{ text: tr(locale, "bot_bind_failed") }, await menu(ctx)] };
   await linkChatToUser(inbound.platform, ctx.chat.chatId, user.id, inbound.externalId);
-  // «Бот = вход»: after the chat is attached, the account is confirmed by the
-  // platform, so it can generate on the site as well.
   await markIdentityVerified(inbound.platform, user.id, inbound.externalId, inbound.username);
   const admin = await ensureOwnerAdmin(inbound.platform, inbound.externalId, user.id);
   const next: Ctx = { ...ctx, user, isAdmin: !!user.isAdmin || admin, chat: { ...ctx.chat, userId: user.id } };
@@ -702,191 +671,18 @@ async function linkFlow(ctx: Ctx): Promise<BotReply> {
     messages: [
       {
         text: tr(locale, "bot_link_hint", { min }),
-        buttons: clampKeyboard([[{ kind: "app", text: tr(locale, "bot_btn_app"), url: link }]]),
+        buttons: clampKeyboard([
+          [{ kind: "app", text: "📱 " + tr(locale, "bot_btn_app"), url: link }],
+          [{ kind: "callback", text: "↩️ " + tr(locale, "common_cancel"), action: ACTION.MENU }],
+        ]),
       },
-      user ? { text: tr(locale, "bot_progress_saved") } : null,
     ].filter(Boolean) as BotOutbound[],
   };
 }
 
 /* ------------------------------------------------------------------ */
-/* Generation + edits                                                  */
+/* Design view and shopping links                                      */
 /* ------------------------------------------------------------------ */
-
-async function generateFlow(ctx: Ctx, styles: Style[], scope: "single" | "all"): Promise<BotReply> {
-  const { inbound, chat, locale, user } = ctx;
-  if (!user) return { messages: [{ text: tr(locale, "bot_no_design") }] };
-  if (!chat.pendingPhotoId && !chat.pendingPhotoUrl) return designFlow(ctx);
-
-  const src = chat.pendingPhotoUrl || resolveImageUrl(chat.pendingPhotoId!);
-  const img = await loadImageBytes(src);
-  if (!img) return { messages: [{ text: tr(locale, "common_error") }] };
-
-  // A single style is charged inside the pipeline; a whole set spends the free
-  // trial once for all of them, exactly like the website does.
-  let charge: Charge | null = null;
-  if (scope === "all") {
-    try {
-      charge = await chargeForGeneration(user, "all");
-    } catch (e) {
-      return { messages: [{ text: generationErrorMessage(locale, e) }] };
-    }
-  }
-
-  const instruction = chat.pendingInstruction || null;
-  const platform = inbound.platform;
-  const chatId = chat.chatId;
-  const originalId = chat.pendingPhotoId || uid("up");
-
-  await updateChat(platform, chatId, { step: "running", styleId: styles[0]?.id ?? null });
-
-  const task = async (): Promise<BotOutbound[]> => {
-    const out: BotOutbound[] = [];
-    let lastGenId: string | null = null;
-    for (const style of styles) {
-      try {
-        const payload = await runStyleGeneration({
-          user,
-          style,
-          source: img,
-          originalId,
-          originalUrl: src,
-          scope,
-          preCharged: charge ?? undefined,
-          instruction,
-          origin: platform,
-        });
-        lastGenId = payload.id;
-        out.push(...(await payloadMessages(ctx, payload)));
-      } catch (e) {
-        out.push({ text: generationErrorMessage(locale, e) });
-      }
-    }
-    await updateChat(platform, chatId, {
-      step: "idle",
-      lastGenerationId: lastGenId,
-      pendingInstruction: null,
-      progressMessageId: null,
-    });
-    if (!out.length) out.push({ text: tr(locale, "common_error") });
-    return out;
-  };
-
-  return {
-    messages: [
-      {
-        text: tr(locale, "bot_generating"),
-        buttons: clampKeyboard([[{ kind: "callback", text: tr(locale, "common_cancel"), action: ACTION.MENU }]]),
-      },
-    ],
-    toast: tr(locale, "bot_toast_working"),
-    task,
-  };
-}
-
-/** Turns a pipeline failure into something a chat user can act on. */
-function generationErrorMessage(locale: Locale, e: unknown): string {
-  if (e instanceof RequestError) {
-    if (e.code === "no_credits" || e.code === "no_trial" || e.code === "trial_used" || e.code === "free_budget_exhausted") {
-      return tr(locale, "bot_no_credits");
-    }
-    if (e.code === "ai_not_configured") return tr(locale, "bot_ai_not_ready");
-    if (e.status < 500 && e.message) return `${tr(locale, "bot_error", { err: e.message })}`;
-  }
-  return tr(locale, "bot_error", { err: safeErrorMessage(e) });
-}
-
-async function editFlow(ctx: Ctx, generationId: string, instruction: string, forceTargets?: string[]): Promise<BotReply> {
-  const { inbound, chat, locale, user } = ctx;
-  if (!user) return { messages: [{ text: tr(locale, "bot_no_design") }] };
-
-  const parsed = parseInstruction(instruction);
-  const targets = forceTargets?.length ? forceTargets : parsed?.targetCategories || [];
-  if (!targets.length) {
-    await updateChat(inbound.platform, chat.chatId, { step: "await_edit" });
-    return { messages: [{ text: `${tr(locale, "edit_none")}\n${tr(locale, "bot_edit_ask")}` }] };
-  }
-
-  const platform = inbound.platform;
-  const chatId = chat.chatId;
-
-  const task = async (): Promise<BotOutbound[]> => {
-    let res: Awaited<ReturnType<typeof runInstructionEdit>>;
-    try {
-      res = await runInstructionEdit({ user, generationId, instruction, origin: platform });
-    } catch (e) {
-      return [{ text: generationErrorMessage(locale, e) }];
-    }
-    await updateChat(platform, chatId, { step: "idle" });
-    if ("error" in res) {
-      const map: Record<string, string> = {
-        not_found: tr(locale, "bot_no_design"),
-        not_ready: tr(locale, "bot_error", { err: "design not ready" }),
-        no_image: tr(locale, "bot_error", { err: "image unavailable" }),
-        forbidden: tr(locale, "common_error"),
-        no_styles: tr(locale, "common_error"),
-      };
-      return [{ text: map[res.error] || tr(locale, "common_error") }];
-    }
-    await updateChat(platform, chatId, { lastGenerationId: res.payload.id, editItemId: null });
-    return await payloadMessages(ctx, res.payload);
-  };
-
-  return {
-    messages: [
-      {
-        text: `${tr(locale, "bot_generating")}\n${tr(locale, "edit_targets", {
-          list: targets.map((id) => categoryById(id)?.ru || id).join(", "),
-        })}`,
-      },
-    ],
-    task,
-  };
-}
-
-async function payloadMessages(ctx: Ctx, payload: GenPayload): Promise<BotOutbound[]> {
-  const { locale } = ctx;
-  const base = await publicBaseUrl(ctx.host);
-  const absolute = (u: string | null) => (!u ? null : /^https?:/.test(u) ? u : `${base}${u}`);
-  const resultUrl = payload.resultUrl || payload.originalUrl;
-  const isDemo = !!resultUrl && resultUrl === payload.originalUrl;
-  const changed = (payload.changedCategories || []).map((id) => categoryById(id)?.ru || id).join(", ");
-
-  const head =
-    payload.kind === "edit"
-      ? tr(locale, "bot_done_edit", { list: changed || "—" })
-      : tr(locale, "bot_done_design", { style: payload.styleName[locale] || payload.styleName.ru });
-
-  const gen: Generation = {
-    id: payload.id,
-    userId: ctx.user?.id || "",
-    styleId: payload.styleId,
-    originalId: "",
-    originalUrl: payload.originalUrl,
-    resultUrl: payload.resultUrl,
-    status: payload.status,
-    error: payload.error,
-    mode: payload.mode,
-    provider: payload.provider,
-    createdAt: payload.createdAt,
-    published: false,
-    shopping: payload.shopping,
-    kind: payload.kind,
-    instruction: payload.instruction,
-    changedCategories: payload.changedCategories,
-  };
-
-  const messages: BotOutbound[] = [
-    {
-      text: [head, isDemo ? `⚠️ ${tr(locale, "studio_demo_note")}` : "", !isDemo && payload.note ? payload.note : ""]
-        .filter(Boolean)
-        .join("\n"),
-      photoUrl: absolute(resultUrl),
-    },
-    await shoppingMessage(ctx, gen),
-  ];
-  return messages;
-}
 
 async function shoppingMessage(ctx: Ctx, gen: Generation): Promise<BotOutbound> {
   const { locale } = ctx;
@@ -898,7 +694,8 @@ async function shoppingMessage(ctx: Ctx, gen: Generation): Promise<BotOutbound> 
       text: `${tr(locale, "bot_shopping_title")}\n${tr(locale, "bot_items_none")}`,
       buttons: clampKeyboard([
         [{ kind: "callback", text: "🔄 " + tr(locale, "shop_refresh"), action: `${ACTION.REFRESH_SHOP}:${gen.id}` }],
-        [{ kind: "app", text: tr(locale, "bot_btn_app"), url: ctx.appLink }],
+        [{ kind: "app", text: "📱 " + tr(locale, "bot_btn_app"), url: ctx.appLink }],
+        [{ kind: "callback", text: "🖼 " + tr(locale, "bot_btn_history"), action: ACTION.HISTORY }],
       ]),
     };
   }
@@ -909,7 +706,7 @@ async function shoppingMessage(ctx: Ctx, gen: Generation): Promise<BotOutbound> 
     const links = it.links.slice(0, 2).map(
       (l) => ({ kind: "link", text: shortMarketplace(l.marketplace), url: l.url } as BotButton)
     );
-    return [{ kind: "callback", text: `${cat?.emoji || "🛍️"} ${name}`, action: `${ACTION.EDIT_ITEM}:${it.id}` }, ...links];
+    return [{ kind: "callback", text: `${cat?.emoji || "🛍️"} ${name}`, action: `${ACTION.VIEW_GEN}:${gen.id}` }, ...links];
   });
 
   return {
@@ -923,8 +720,8 @@ async function shoppingMessage(ctx: Ctx, gen: Generation): Promise<BotOutbound> 
     buttons: clampKeyboard([
       ...rows,
       [
-        { kind: "callback", text: `✏️ ${tr(locale, "bot_btn_edit")}`, action: ACTION.ASK_INSTRUCTION },
         { kind: "callback", text: `🔄 ${tr(locale, "shop_refresh")}`, action: `${ACTION.REFRESH_SHOP}:${gen.id}` },
+        { kind: "app", text: "📱 " + tr(locale, "bot_btn_app"), url: ctx.appLink },
       ],
       [
         {
@@ -932,7 +729,7 @@ async function shoppingMessage(ctx: Ctx, gen: Generation): Promise<BotOutbound> 
           text: gen.published ? `↩️ ${tr(locale, "gallery_unpublish")}` : `📤 ${tr(locale, "gallery_publish")}`,
           action: `${gen.published ? ACTION.UNPUBLISH : ACTION.PUBLISH}:${gen.id}`,
         },
-        { kind: "app", text: tr(locale, "bot_btn_app"), url: ctx.appLink },
+        { kind: "callback", text: "🖼 " + tr(locale, "bot_btn_history"), action: ACTION.HISTORY },
       ],
     ]),
   };
@@ -999,6 +796,7 @@ async function adminMenuMessage(ctx: Ctx): Promise<BotOutbound> {
       [{ kind: "callback", text: tr(locale, "bot_admin_broadcast"), action: ACTION.ADMIN_BROADCAST }],
       [{ kind: "callback", text: tr(locale, "bot_admin_webhook"), action: ACTION.ADMIN_SYNC_WEBHOOK }],
       [{ kind: "app", text: "🖥 " + tr(locale, "admin_title"), url: `${await publicBaseUrl(ctx.host)}/admin` }],
+      [{ kind: "callback", text: "↩️ " + tr(locale, "common_cancel"), action: ACTION.MENU }],
     ]),
   };
 }

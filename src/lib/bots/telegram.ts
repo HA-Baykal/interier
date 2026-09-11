@@ -74,14 +74,12 @@ export async function tgWebhookInfo(): Promise<{ url: string | null; pending: nu
 }
 
 const COMMANDS = [
-  { command: "start", description: "Главное меню / menu" },
-  { command: "new", description: "Создать дизайн по фото" },
-  { command: "edit", description: "Изменить деталь (например, шторы)" },
-  { command: "shop", description: "Список покупок по последнему дизайну" },
-  { command: "history", description: "Мои дизайны" },
-  { command: "app", description: "Открыть приложение" },
-  { command: "credits", description: "Баланс генераций" },
-  { command: "cancel", description: "Отменить текущий шаг" },
+  { command: "start", description: "Главное меню / Main menu" },
+  { command: "app", description: "📱 Открыть приложение" },
+  { command: "history", description: "🖼 Мои дизайны" },
+  { command: "ref", description: "👥 Пригласить друга" },
+  { command: "help", description: "ℹ️ Как это работает" },
+  { command: "lang", description: "🌐 Сменить язык / Change language" },
 ];
 
 export async function tgSetCommands(): Promise<void> {

@@ -31,11 +31,28 @@ type Env = { hasReplicate: boolean; hasOpenAI: boolean; hasTogether: boolean };
 
 type Stats = { users: number; generations: number; credits: number; referrals: number };
 
+type PackageModalState = {
+  mode: "add" | "edit";
+  pkg: {
+    id?: string;
+    slug: string;
+    nameRu: string;
+    nameEn: string;
+    descRu: string;
+    descEn: string;
+    credits: number;
+    price: number;
+    badgeRu: string;
+    badgeEn: string;
+    active: boolean;
+  };
+} | null;
+
 export default function Admin({
   stats,
   settings,
   styles,
-  packages,
+  packages: initialPackages,
   env,
 }: {
   stats: Stats;
@@ -47,11 +64,15 @@ export default function Admin({
   const { t, locale } = useLocale();
   const router = useRouter();
   const [form, setForm] = useState(settings);
+  const [packs, setPacks] = useState<ClientPackage[]>(initialPackages);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pkgToast, setPkgToast] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [probing, setProbing] = useState(false);
   const [diagnostics, setDiagnostics] = useState<string | null>(null);
+  const [pkgModal, setPkgModal] = useState<PackageModalState>(null);
+  const [pkgSaving, setPkgSaving] = useState(false);
 
   function field(key: keyof Settings) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -91,6 +112,7 @@ export default function Admin({
     finally { setProbing(false); }
   }
 
+  /* --- Styles --- */
   async function toggleStyle(id: string, active: boolean) {
     await fetch(`/api/admin/styles/${id}`, {
       method: "PATCH",
@@ -101,6 +123,7 @@ export default function Admin({
   }
 
   async function delStyle(id: string) {
+    if (!confirm("Удалить стиль?")) return;
     await fetch(`/api/admin/styles/${id}`, { method: "DELETE", headers: authHeaders() });
     router.refresh();
   }
@@ -120,19 +143,160 @@ export default function Admin({
     if (res.ok) router.refresh();
   }
 
-  async function addPackage() {
-    const slug = prompt("Slug (e.g. premium)") || "";
-    if (!slug) return;
-    const nameRu = prompt("Название (RU)") || slug;
-    const nameEn = prompt("Name (EN)") || slug;
-    const credits = Number(prompt("Кредиты (генераций)") || "0");
-    const price = Number(prompt("Цена (₽)") || "0");
-    const res = await fetch("/api/admin/packages", {
-      method: "POST",
-      headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ slug, nameRu, nameEn, credits, price }),
+  /* --- Packages (Manual Price & Credit management) --- */
+  function showToast(text: string) {
+    setPkgToast(text);
+    setTimeout(() => setPkgToast(null), 3500);
+  }
+
+  function handlePackageLocalChange(id: string, field: "price" | "credits", val: number) {
+    setPacks((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, [field]: val } : p))
+    );
+  }
+
+  async function saveQuickPackage(pkg: ClientPackage) {
+    try {
+      const res = await fetch(`/api/admin/packages/${pkg.id}`, {
+        method: "PATCH",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          price: pkg.price,
+          credits: pkg.credits,
+          active: pkg.active,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      showToast(`✓ Пакет «${pkg.nameRu || pkg.slug}»: ${pkg.price} ₽ (${pkg.credits} генераций) сохранён`);
+      router.refresh();
+    } catch {
+      showToast("Ошибка сохранения пакета");
+    }
+  }
+
+  async function togglePackageActive(pkg: ClientPackage) {
+    const nextActive = !pkg.active;
+    setPacks((prev) =>
+      prev.map((p) => (p.id === pkg.id ? { ...p, active: nextActive } : p))
+    );
+    try {
+      const res = await fetch(`/api/admin/packages/${pkg.id}`, {
+        method: "PATCH",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ active: nextActive }),
+      });
+      if (!res.ok) throw new Error("Failed to toggle");
+      showToast(`Пакет «${pkg.nameRu || pkg.slug}» ${nextActive ? "включён" : "отключён"}`);
+      router.refresh();
+    } catch {
+      showToast("Ошибка изменения статуса пакета");
+    }
+  }
+
+  async function delPackage(id: string, name: string) {
+    if (!confirm(`Удалить пакет «${name}»?`)) return;
+    try {
+      const res = await fetch(`/api/admin/packages/${id}`, { method: "DELETE", headers: authHeaders() });
+      if (!res.ok) throw new Error("Failed to delete");
+      setPacks((prev) => prev.filter((p) => p.id !== id));
+      showToast(`Пакет «${name}» удалён`);
+      router.refresh();
+    } catch {
+      showToast("Ошибка удаления пакета");
+    }
+  }
+
+  function openEditModal(pkg: ClientPackage) {
+    setPkgModal({
+      mode: "edit",
+      pkg: {
+        id: pkg.id,
+        slug: pkg.slug,
+        nameRu: pkg.nameRu,
+        nameEn: pkg.nameEn,
+        descRu: pkg.descRu,
+        descEn: pkg.descEn,
+        credits: pkg.credits,
+        price: pkg.price,
+        badgeRu: pkg.badgeRu || "",
+        badgeEn: pkg.badgeEn || "",
+        active: pkg.active,
+      },
     });
-    if (res.ok) router.refresh();
+  }
+
+  function openAddModal() {
+    setPkgModal({
+      mode: "add",
+      pkg: {
+        slug: "",
+        nameRu: "",
+        nameEn: "",
+        descRu: "",
+        descEn: "",
+        credits: 10,
+        price: 990,
+        badgeRu: "",
+        badgeEn: "",
+        active: true,
+      },
+    });
+  }
+
+  async function submitPackageModal() {
+    if (!pkgModal) return;
+    setPkgSaving(true);
+    const { mode, pkg } = pkgModal;
+    try {
+      if (mode === "add") {
+        const res = await fetch("/api/admin/packages", {
+          method: "POST",
+          headers: { ...authHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify(pkg),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || "Failed to create package");
+        showToast(`✓ Пакет «${pkg.nameRu || pkg.slug}» успешно создан (${pkg.price} ₽)`);
+      } else {
+        const res = await fetch(`/api/admin/packages/${pkg.id}`, {
+          method: "PATCH",
+          headers: { ...authHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify(pkg),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || "Failed to update package");
+        showToast(`✓ Пакет «${pkg.nameRu || pkg.slug}» обновлён (${pkg.price} ₽)`);
+      }
+      setPkgModal(null);
+      // Reload packages from server
+      const r = await fetch("/api/admin/packages", { headers: authHeaders() });
+      if (r.ok) {
+        const data = await r.json();
+        if (Array.isArray(data.packages)) {
+          setPacks(
+            data.packages.map((p: any) => ({
+              id: p.id,
+              slug: p.slug,
+              nameRu: p.name.ru,
+              nameEn: p.name.en,
+              descRu: p.description?.ru || "",
+              descEn: p.description?.en || "",
+              credits: p.credits,
+              price: p.price,
+              badgeRu: p.badge?.ru || null,
+              badgeEn: p.badge?.en || null,
+              badge: p.badge ? (p.badge.ru || p.badge.en) : null,
+              active: p.active,
+            }))
+          );
+        }
+      }
+      router.refresh();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Ошибка сохранения пакета");
+    } finally {
+      setPkgSaving(false);
+    }
   }
 
   async function resetDemo() {
@@ -290,23 +454,380 @@ export default function Admin({
         </div>
       </div>
 
-      {/* Packages */}
+      {/* Packages & Manual Price Management */}
       <div className="panel mt">
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <h2 style={{ fontSize: 19 }}>{t("admin_packages")}</h2>
-          <button className="btn btn-sm" onClick={addPackage}>+ {t("admin_add_style")}</button>
+        <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <h2 style={{ fontSize: 19 }}>💳 {t("admin_packages")}</h2>
+            <p className="muted small" style={{ marginTop: 4 }}>
+              {t("admin_packages_subtitle")}
+            </p>
+          </div>
+          <button className="btn btn-sm btn-primary" onClick={openAddModal}>
+            + {t("admin_add_package")}
+          </button>
         </div>
-        <div className="mt">
-          {packages.map((p) => (
-            <div key={p.id} className="hist-item">
-              <div className="grow">
-                <div style={{ fontWeight: 600 }}>{locale === "ru" ? p.nameRu : p.nameEn}</div>
-                <div className="small muted">{p.credits} {t("credits_label")} · {p.price} ₽</div>
+
+        {pkgToast && (
+          <div className="ok mt" style={{ padding: "8px 12px", fontSize: 14 }}>
+            {pkgToast}
+          </div>
+        )}
+
+        <div className="mt" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {packs.map((p) => {
+            const isFeatured = !!(p.badgeRu || p.badgeEn || p.badge);
+            const badgeText = p.badgeRu || p.badgeEn || p.badge;
+            return (
+              <div
+                key={p.id}
+                className="panel"
+                style={{
+                  padding: "14px 18px",
+                  background: p.active ? "var(--panel)" : "rgba(255,255,255,0.02)",
+                  opacity: p.active ? 1 : 0.65,
+                  border: isFeatured ? "1px solid var(--brand)" : undefined,
+                }}
+              >
+                <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                  {/* Left info */}
+                  <div style={{ minWidth: 200, flex: "1 1 240px" }}>
+                    <div className="row" style={{ gap: 8, alignItems: "center" }}>
+                      <span style={{ fontSize: 17, fontWeight: 700 }}>
+                        {locale === "ru" ? p.nameRu : p.nameEn}
+                      </span>
+                      <span className="chip" style={{ fontSize: 12 }}>
+                        slug: {p.slug}
+                      </span>
+                      {badgeText && (
+                        <span className="badge" style={{ position: "static", fontSize: 11 }}>
+                          {badgeText}
+                        </span>
+                      )}
+                    </div>
+                    {(p.descRu || p.descEn) && (
+                      <div className="small muted" style={{ marginTop: 4 }}>
+                        {locale === "ru" ? p.descRu || p.descEn : p.descEn || p.descRu}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Editable fields */}
+                  <div className="row" style={{ alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                    {/* Credits */}
+                    <div className="row" style={{ alignItems: "center", gap: 6 }}>
+                      <label className="small muted" style={{ margin: 0 }}>Генераций:</label>
+                      <input
+                        className="input"
+                        type="number"
+                        min="1"
+                        style={{ width: 75, padding: "6px 8px", textAlign: "center", fontWeight: 700 }}
+                        value={p.credits}
+                        onChange={(e) =>
+                          handlePackageLocalChange(p.id, "credits", Math.max(1, parseInt(e.target.value) || 1))
+                        }
+                      />
+                    </div>
+
+                    {/* Price in Rubles */}
+                    <div className="row" style={{ alignItems: "center", gap: 6 }}>
+                      <label className="small muted" style={{ margin: 0, fontWeight: 600 }}>Цена (₽):</label>
+                      <input
+                        className="input"
+                        type="number"
+                        min="0"
+                        step="10"
+                        style={{
+                          width: 105,
+                          padding: "6px 8px",
+                          textAlign: "right",
+                          fontWeight: 800,
+                          color: "var(--brand)",
+                          fontSize: 16,
+                        }}
+                        value={p.price}
+                        onChange={(e) =>
+                          handlePackageLocalChange(p.id, "price", Math.max(0, parseInt(e.target.value) || 0))
+                        }
+                      />
+                      <span style={{ fontWeight: 700, color: "var(--brand)" }}>₽</span>
+                    </div>
+
+                    {/* Quick Save button */}
+                    <button
+                      className="btn btn-sm btn-primary"
+                      onClick={() => saveQuickPackage(p)}
+                      title="Сохранить цену и генерации"
+                    >
+                      💾 {t("admin_package_save")}
+                    </button>
+
+                    {/* Active toggle */}
+                    <button
+                      className={"btn btn-sm " + (p.active ? "btn-ghost" : "")}
+                      onClick={() => togglePackageActive(p)}
+                      style={{
+                        minWidth: 55,
+                        borderColor: p.active ? "var(--success)" : undefined,
+                        color: p.active ? "var(--success)" : undefined,
+                      }}
+                    >
+                      {p.active ? t("admin_on") : t("admin_off")}
+                    </button>
+
+                    {/* Edit Modal */}
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => openEditModal(p)}
+                      title="Полное редактирование"
+                    >
+                      ✏️
+                    </button>
+
+                    {/* Delete */}
+                    <button
+                      className="btn btn-sm btn-danger"
+                      onClick={() => delPackage(p.id, p.nameRu || p.slug)}
+                      title={t("admin_package_delete")}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
+
+      {/* Package Edit/Add Modal */}
+      {pkgModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.75)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            padding: 16,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !pkgSaving) setPkgModal(null);
+          }}
+        >
+          <div
+            className="panel"
+            style={{
+              width: "100%",
+              maxWidth: 540,
+              maxHeight: "90vh",
+              overflowY: "auto",
+              padding: 24,
+            }}
+          >
+            <div className="row" style={{ justifyContent: "space-between", marginBottom: 16 }}>
+              <h2 style={{ fontSize: 20 }}>
+                {pkgModal.mode === "add" ? `+ ${t("admin_add_package")}` : `✏️ ${t("admin_package_edit")}`}
+              </h2>
+              <button
+                className="btn btn-sm btn-ghost"
+                disabled={pkgSaving}
+                onClick={() => setPkgModal(null)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div className="field">
+                <label>Slug (идентификатор, латиница):</label>
+                <input
+                  className="input"
+                  placeholder="e.g. premium"
+                  value={pkgModal.pkg.slug}
+                  onChange={(e) =>
+                    setPkgModal({
+                      ...pkgModal,
+                      pkg: { ...pkgModal.pkg, slug: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, "") },
+                    })
+                  }
+                />
+              </div>
+
+              <div className="row" style={{ gap: 12 }}>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>{t("admin_package_name_ru")}:</label>
+                  <input
+                    className="input"
+                    placeholder="Например: Плюс"
+                    value={pkgModal.pkg.nameRu}
+                    onChange={(e) =>
+                      setPkgModal({
+                        ...pkgModal,
+                        pkg: { ...pkgModal.pkg, nameRu: e.target.value },
+                      })
+                    }
+                  />
+                </div>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>{t("admin_package_name_en")}:</label>
+                  <input
+                    className="input"
+                    placeholder="e.g. Plus"
+                    value={pkgModal.pkg.nameEn}
+                    onChange={(e) =>
+                      setPkgModal({
+                        ...pkgModal,
+                        pkg: { ...pkgModal.pkg, nameEn: e.target.value },
+                      })
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="row" style={{ gap: 12 }}>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>{t("admin_package_price")} (руб.):</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    step="10"
+                    placeholder="490"
+                    style={{ fontWeight: 800, color: "var(--brand)" }}
+                    value={pkgModal.pkg.price}
+                    onChange={(e) =>
+                      setPkgModal({
+                        ...pkgModal,
+                        pkg: { ...pkgModal.pkg, price: Math.max(0, parseInt(e.target.value) || 0) },
+                      })
+                    }
+                  />
+                </div>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>{t("admin_package_credits")}:</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="1"
+                    placeholder="15"
+                    style={{ fontWeight: 700 }}
+                    value={pkgModal.pkg.credits}
+                    onChange={(e) =>
+                      setPkgModal({
+                        ...pkgModal,
+                        pkg: { ...pkgModal.pkg, credits: Math.max(1, parseInt(e.target.value) || 1) },
+                      })
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="field">
+                <label>{t("admin_package_desc_ru")}:</label>
+                <textarea
+                  className="input"
+                  rows={2}
+                  placeholder="15 генераций. Хватит обновить несколько комнат."
+                  value={pkgModal.pkg.descRu}
+                  onChange={(e) =>
+                    setPkgModal({
+                      ...pkgModal,
+                      pkg: { ...pkgModal.pkg, descRu: e.target.value },
+                    })
+                  }
+                />
+              </div>
+
+              <div className="field">
+                <label>{t("admin_package_desc_en")}:</label>
+                <textarea
+                  className="input"
+                  rows={2}
+                  placeholder="15 generations. Enough to refresh several rooms."
+                  value={pkgModal.pkg.descEn}
+                  onChange={(e) =>
+                    setPkgModal({
+                      ...pkgModal,
+                      pkg: { ...pkgModal.pkg, descEn: e.target.value },
+                    })
+                  }
+                />
+              </div>
+
+              <div className="row" style={{ gap: 12 }}>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>Бейдж RU (напр. Популярный):</label>
+                  <input
+                    className="input"
+                    placeholder="Популярный"
+                    value={pkgModal.pkg.badgeRu}
+                    onChange={(e) =>
+                      setPkgModal({
+                        ...pkgModal,
+                        pkg: { ...pkgModal.pkg, badgeRu: e.target.value },
+                      })
+                    }
+                  />
+                </div>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>Badge EN (e.g. Popular):</label>
+                  <input
+                    className="input"
+                    placeholder="Popular"
+                    value={pkgModal.pkg.badgeEn}
+                    onChange={(e) =>
+                      setPkgModal({
+                        ...pkgModal,
+                        pkg: { ...pkgModal.pkg, badgeEn: e.target.value },
+                      })
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="field" style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 4 }}>
+                <label className="row" style={{ gap: 10, cursor: "pointer", margin: 0 }}>
+                  <input
+                    type="checkbox"
+                    style={{ width: 18, height: 18 }}
+                    checked={pkgModal.pkg.active}
+                    onChange={(e) =>
+                      setPkgModal({
+                        ...pkgModal,
+                        pkg: { ...pkgModal.pkg, active: e.target.checked },
+                      })
+                    }
+                  />
+                  <span>{t("admin_package_active")}</span>
+                </label>
+              </div>
+
+              <div className="row" style={{ justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
+                <button
+                  className="btn btn-ghost"
+                  disabled={pkgSaving}
+                  onClick={() => setPkgModal(null)}
+                >
+                  Отмена
+                </button>
+                <button
+                  className="btn btn-primary"
+                  disabled={pkgSaving || !pkgModal.pkg.slug || !pkgModal.pkg.nameRu}
+                  onClick={submitPackageModal}
+                >
+                  {pkgSaving ? "Сохраняем…" : t("admin_package_save")}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <button className="btn btn-danger mt" onClick={resetDemo}>↺ {t("admin_demo_reset")}</button>
     </div>

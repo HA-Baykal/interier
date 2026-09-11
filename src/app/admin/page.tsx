@@ -37,16 +37,19 @@ export default async function AdminPage({
     vignette: s.config.vignette,
     active: s.active,
   }));
-  const packages: ClientPackage[] = (await activePackages()).map((p) => ({
+  const packages: ClientPackage[] = (d.packages || []).map((p) => ({
     id: p.id,
     slug: p.slug,
     nameRu: p.name.ru,
     nameEn: p.name.en,
-    descRu: p.description.ru,
-    descEn: p.description.en,
+    descRu: p.description?.ru || "",
+    descEn: p.description?.en || "",
     credits: p.credits,
     price: p.price,
+    badgeRu: p.badge?.ru || null,
+    badgeEn: p.badge?.en || null,
     badge: p.badge ? (p.badge.ru || p.badge.en) : null,
+    active: p.active,
   }));
 
   return (

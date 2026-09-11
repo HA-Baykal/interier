@@ -31,9 +31,19 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     if (e instanceof AuthError) return NextResponse.json({ error: e.code }, { status: 401 });
     throw e;
   }
-  const gen = (await db()).generations.find((g) => g.id === params.id);
+  let gen = (await db()).generations.find((g) => g.id === params.id);
   if (!gen) return NextResponse.json({ error: "not_found" }, { status: 404 });
   if (gen.userId !== user.id && !user.isAdmin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+
+  if (!gen.shopping && (gen.resultUrl || gen.originalUrl)) {
+    try {
+      await regenerateShopping(params.id);
+      const updated = (await db()).generations.find((g) => g.id === params.id);
+      if (updated) gen = updated;
+    } catch {
+      /* ignore auto-gen error */
+    }
+  }
 
   const settings = await shoppingSettings();
   return NextResponse.json({

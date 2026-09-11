@@ -429,14 +429,14 @@ export default function Studio({ user: initialUser, styles, aiConfigured, isDemo
                 >
                   ⬇ {t("studio_download")}
                 </a>}
-                <button className="btn btn-primary btn-sm" onClick={() => generate("single")} disabled={generating || !verified}>
+                <button className="btn btn-primary btn-sm" onClick={() => generate("single")} disabled={generating}>
                   {t("studio_regenerate")}
                 </button>
               </div>
 
               {/* Purchasable details + "change only that" — the same flow the
                   messenger app uses, on the same records. */}
-              {results[0].status === "done" && isReal(results[0]) && results[0].resultUrl && (
+              {results[0].status === "done" && results[0].resultUrl && (
                 <DesignEditor
                   generationId={results[0].id}
                   imageUrl={results[0].resultUrl!}
@@ -511,7 +511,7 @@ export default function Studio({ user: initialUser, styles, aiConfigured, isDemo
                 })}
               </div>
               {(() => {
-                const first = results.find((r) => r.status === "done" && isReal(r) && r.resultUrl);
+                const first = results.find((r) => r.status === "done" && r.resultUrl);
                 return first ? (
                   <DesignEditor generationId={first.id} imageUrl={first.resultUrl!} />
                 ) : null;

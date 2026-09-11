@@ -72,7 +72,7 @@ test("all-style jobs run concurrently and successful images are saved, not left 
   let starts = 0;
   const count = (await seed.activeStyles()).length;
   t.mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
-    if (init?.method === "POST") { starts++; return Response.json({ request_id: starts }); }
+    if (init?.method === "POST" && String(url).includes("/networks/")) { starts++; return Response.json({ request_id: starts }); }
     if (url.includes("/request/get/")) {
       assert.equal(starts, count, "all starts happen before the first poll");
       return Response.json({ status: "success", result: ["https://result.example.test/image.png"] });

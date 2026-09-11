@@ -147,8 +147,14 @@ export async function POST(req: NextRequest) {
       }
       // Which details are in the result and where to buy them — the same data
       // the messenger bots send as a list of links.
-      const shopping = status === "done"
-        ? await attachShoppingToGeneration(g.id, { instruction, targets: wish?.targetCategories ?? null })
+      const shopping = status === "done" && resultUrl
+        ? await attachShoppingToGeneration(g.id, {
+            resultUrl,
+            status,
+            style: st,
+            instruction,
+            targets: wish?.targetCategories ?? null,
+          })
         : null;
       return {
         id: g.id, styleId: st.id, styleSlug: st.slug, originalUrl: upload.url,

@@ -485,22 +485,36 @@ async function runDetection(input: Parameters<typeof detectShopping>[0], setting
 /** Attach (and persist) the shopping list of an existing generation. */
 export async function attachShoppingToGeneration(
   generationId: string,
-  input: { instruction?: string | null; targets?: string[] | null } = {}
+  input: {
+    resultUrl?: string | null;
+    status?: string;
+    style?: Style | null;
+    instruction?: string | null;
+    targets?: string[] | null;
+  } = {}
 ): Promise<ShoppingList | null> {
-  const gen = (await db()).generations.find((g) => g.id === generationId);
-  if (!gen || gen.status !== "done" || !gen.resultUrl) return null;
-  const style = (await activeStyles()).find((s) => s.id === gen.styleId) || null;
+  const d = await db();
+  const gen = d.generations.find((g) => g.id === generationId);
+  const effectiveResultUrl = input.resultUrl ?? gen?.resultUrl;
+  const effectiveStatus = input.status ?? gen?.status;
+  if (!effectiveResultUrl || (effectiveStatus !== "done" && effectiveStatus !== "processing")) return null;
+  const styles = await activeStyles();
+  const style = input.style || styles.find((s) => s.id === gen?.styleId) || styles[0] || null;
   if (!style) return null;
   const shopping = await detectShopping({
-    imageRef: gen.resultUrl,
+    imageRef: effectiveResultUrl,
     style,
-    instruction: input.instruction ?? gen.instruction ?? null,
-    targets: input.targets ?? gen.changedCategories ?? undefined,
+    instruction: input.instruction ?? gen?.instruction ?? null,
+    targets: input.targets ?? gen?.changedCategories ?? undefined,
     prompt: null,
   });
-  await mutate((d) => {
-    const rec = d.generations.find((g) => g.id === generationId);
-    if (rec) rec.shopping = shopping;
+  await mutate((draft) => {
+    const rec = draft.generations.find((g) => g.id === generationId);
+    if (rec) {
+      rec.shopping = shopping;
+      if (input.resultUrl) rec.resultUrl = input.resultUrl;
+      if (input.status) rec.status = input.status as Generation["status"];
+    }
   });
   return shopping;
 }

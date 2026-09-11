@@ -46,7 +46,7 @@ test("global test unlimited applies to administrators only", async () => {
 test("an ordinary account gets a trial, not unlimited generation, and an exhausted account stops before another provider request", async (t) => {
   let starts = 0;
   t.mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
-    if (init?.method === "POST") { starts++; return Response.json({ request_id: 1 }); }
+    if (init?.method === "POST" && String(url).includes("/networks/")) { starts++; return Response.json({ request_id: 1 }); }
     if (url.includes("/request/get/")) return Response.json({ status: "success", result: ["https://result.example.test/image.png"] });
     return new Response(new Uint8Array(PNG));
   });

@@ -55,7 +55,8 @@ export default function PricingSection({
         );
         setTimeout(() => {
           router.push("/studio");
-        }, 2000);
+          router.refresh();
+        }, 1500);
       }
     } catch (e: any) {
       setErrorMsg(e.message || "Не удалось создать заказ. Попробуйте снова.");

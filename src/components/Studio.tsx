@@ -63,10 +63,11 @@ function StyledImage({
   );
 }
 
-export default function Studio({ user, styles, aiConfigured, isDemo, initialUnlimited, activeProfileLabel, activeProfileEstimate }: {
+export default function Studio({ user: initialUser, styles, aiConfigured, isDemo, initialUnlimited, activeProfileLabel, activeProfileEstimate }: {
   user: ClientUser; styles: ClientStyle[]; aiConfigured: boolean; isDemo: boolean; initialUnlimited: boolean; activeProfileLabel: string; activeProfileEstimate?: number;
 }) {
   const { t, locale } = useLocale();
+  const [user, setUser] = useState(initialUser);
   const verified = user.isAdmin || user.verified === true;
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -85,6 +86,13 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
   const [compare, setCompare] = useState(true);
   const [pubIds, setPubIds] = useState<Record<string, boolean>>({});
 
+  function loadUser() {
+    return fetch("/api/auth/me", { headers: authHeaders(), cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => { if (d.user) setUser(d.user); })
+      .catch(() => {});
+  }
+
   function loadHistory() {
     return fetch("/api/generations", { headers: authHeaders(), cache: "no-store" })
       .then((r) => r.json())
@@ -93,6 +101,7 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
   }
 
   useEffect(() => {
+    void loadUser();
     void loadHistory();
   }, []);
 
@@ -168,8 +177,8 @@ export default function Studio({ user, styles, aiConfigured, isDemo, initialUnli
       }
       setResults(data.generations || []);
       if (typeof data.unlimited === "boolean") setUnlimited(data.unlimited);
-      fetch("/api/generations", { headers: authHeaders(), cache: "no-store" })
-        .then((r) => r.json()).then((d) => setHistory(d.generations || [])).catch(() => {});
+      void loadUser();
+      void loadHistory();
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : t("common_error"));

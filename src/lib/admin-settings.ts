@@ -40,6 +40,11 @@ const schema = z.object({
   vision_base_url: z.string().max(500).optional(),
   vision_api_key: z.string().max(1000).optional(),
   vision_model: z.string().max(200).optional(),
+  // YooKassa online payments.
+  yookassa_enabled: z.enum(["0", "1"]).optional(),
+  yookassa_shop_id: z.string().max(100).optional(),
+  yookassa_secret_key: z.string().max(300).optional(),
+  yookassa_test_mode: z.enum(["0", "1"]).optional(),
 });
 
 export function adminSettingsView(d: DbShape) {
@@ -79,6 +84,11 @@ export function adminSettingsView(d: DbShape) {
     // to a browser.
     vision_api_key: "",
     vision_model: values.vision_model ?? "",
+    yookassa_enabled: values.yookassa_enabled ?? "1",
+    yookassa_shop_id: values.yookassa_shop_id ?? "",
+    yookassa_secret_key: "",
+    yookassa_test_mode: values.yookassa_test_mode ?? "0",
+    yookassa_configured: !!(values.yookassa_shop_id && values.yookassa_secret_key),
   };
 }
 
@@ -86,7 +96,7 @@ export async function updateAdminSettings(body: unknown) {
   assertDurableDatabase();
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new RequestError("bad_request", "Settings must be an object");
   const cleaned = Object.fromEntries(Object.entries(body).map(([key, value]) => [key,
-    typeof value === "string" ? (key.startsWith("compatible_") ? cleanConnectionValue(value) : cleanConfigValue(value)) : value,
+    typeof value === "string" ? (key.startsWith("compatible_") || key.startsWith("yookassa_") ? cleanConnectionValue(value) : cleanConfigValue(value)) : value,
   ]));
   const parsed = schema.safeParse(cleaned);
   if (!parsed.success) throw new RequestError("bad_request", `Invalid setting: ${parsed.error.issues[0].path.join(".")}`);
@@ -94,6 +104,7 @@ export async function updateAdminSettings(body: unknown) {
   // Empty password input means "keep current key / use env", not "erase".
   if (!updates.compatible_api_key) delete updates.compatible_api_key;
   if (!updates.vision_api_key) delete updates.vision_api_key;
+  if (!updates.yookassa_secret_key) delete updates.yookassa_secret_key;
   if (updates.vision_api_key) updates.vision_provider = "custom";
   if (updates.compatible_api_key) updates.generation_mode = "compatible";
   if (updates.generation_mode) updates.generation_mode_explicit = "1";

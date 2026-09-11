@@ -251,6 +251,20 @@ export type Setting = {
   value: string;
 };
 
+export type Payment = {
+  id: string; // pay_xxxx
+  userId: string;
+  packageId: string;
+  amount: number; // in RUB
+  credits: number;
+  provider: "yookassa" | "test";
+  providerPaymentId?: string | null;
+  status: "pending" | "succeeded" | "canceled";
+  confirmationUrl?: string | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type DbShape = {
   users: User[];
   sessions: Session[];
@@ -259,6 +273,7 @@ export type DbShape = {
   referrals: Referral[];
   styles: Style[];
   packages: Package[];
+  payments: Payment[];
   settings: Setting[];
   botChats: BotChat[];
   botLinks: BotLinkToken[];

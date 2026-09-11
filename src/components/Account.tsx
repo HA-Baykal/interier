@@ -3,10 +3,16 @@
 import { useEffect, useState } from "react";
 import { useLocale } from "./locale-context";
 import { authHeaders } from "@/lib/client-auth";
-import { ClientUser } from "./types";
+import { ClientPackage, ClientUser } from "./types";
 import TelegramAccess from "./TelegramAccess";
 
-export default function Account({ initialUser }: { initialUser: ClientUser }) {
+export default function Account({
+  initialUser,
+  packages = [],
+}: {
+  initialUser: ClientUser;
+  packages?: ClientPackage[];
+}) {
   const { t, locale } = useLocale();
   const [user, setUser] = useState(initialUser);
   const [copied, setCopied] = useState(false);
@@ -14,6 +20,13 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
   const [history, setHistory] = useState<any[]>([]);
   const [pubIds, setPubIds] = useState<Record<string, boolean>>({});
   const [refLink, setRefLink] = useState("");
+  const [buyingId, setBuyingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.search.includes("payment=success")) {
+      setToast(locale === "ru" ? "🎉 Оплата прошла успешно! Баланс пополнен." : "🎉 Payment successful! Balance topped up.");
+    }
+  }, [locale]);
 
   useEffect(() => {
     fetch("/api/auth/me", { headers: authHeaders() })
@@ -83,6 +96,37 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
     }
   }
 
+  async function handleBuy(pkg: ClientPackage) {
+    setBuyingId(pkg.id);
+    try {
+      const res = await fetch("/api/payments/create", {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ packageId: pkg.id }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.message || data.error || "Ошибка создания заказа");
+      }
+      if (data.confirmationUrl) {
+        window.location.href = data.confirmationUrl;
+        return;
+      }
+      if (data.isTest) {
+        setToast(
+          locale === "ru"
+            ? `🎉 Тестовая оплата прошла! Начислено +${data.creditsAdded || pkg.credits} генераций.`
+            : `🎉 Test payment successful! Added +${data.creditsAdded || pkg.credits} credits.`
+        );
+        setUser((u) => ({ ...u, credits: u.credits + (data.creditsAdded || pkg.credits) }));
+      }
+    } catch (e: any) {
+      setToast(e.message || "Не удалось создать заказ");
+    } finally {
+      setBuyingId(null);
+    }
+  }
+
   const tgGranted = user.telegramGranted;
 
   return (
@@ -96,6 +140,43 @@ export default function Account({ initialUser }: { initialUser: ClientUser }) {
           <div style={{ fontSize: 42, fontWeight: 800, color: "var(--brand)" }}>{user.credits}</div>
         </div>
       </div>
+
+      {/* Packages / Top-up */}
+      {packages.length > 0 && (
+        <div className="panel mt">
+          <h2 style={{ fontSize: 19 }}>💳 {locale === "ru" ? "Пополнить баланс генераций" : "Top up generation credits"}</h2>
+          <p className="muted small" style={{ marginTop: 6 }}>
+            {locale === "ru" ? "Выберите тарифный план для мгновенного начисления генераций." : "Choose a package for instant generation top-up."}
+          </p>
+          <div className="pricing-grid mt">
+            {packages.filter((p) => p.active).map((p) => {
+              const badgeText = locale === "ru" ? p.badgeRu : p.badgeEn;
+              const isBuying = buyingId === p.id;
+              return (
+                <div className={"price-card" + (badgeText ? " featured" : "")} key={p.id}>
+                  {badgeText && <span className="badge">{badgeText}</span>}
+                  <h3>{locale === "ru" ? p.nameRu : p.nameEn}</h3>
+                  <div className="credits">
+                    {p.credits} <span>{t("credits_label")}</span>
+                  </div>
+                  <div className="desc">{locale === "ru" ? p.descRu : p.descEn}</div>
+                  <div className="price">
+                    {p.price.toLocaleString("ru-RU")} ₽ <small>/ {t("per_gen")}</small>
+                  </div>
+                  <button
+                    className="btn btn-primary"
+                    style={{ width: "100%" }}
+                    disabled={isBuying}
+                    onClick={() => handleBuy(p)}
+                  >
+                    {isBuying ? "⏳ …" : t("buy_label")}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="panel mt">
         <h2 style={{ fontSize: 19 }}>{t("tg_account_title")}</h2>

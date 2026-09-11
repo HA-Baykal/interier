@@ -10,7 +10,7 @@ let billing: typeof import("../src/lib/billing");
 before(async () => { cleanup = isolateStorage(); store = await import("../src/lib/db"); billing = await import("../src/lib/billing"); });
 beforeEach(async () => { await store.resetDb(); });
 after(() => cleanup());
-const empty = (): DbShape => ({ users: [], sessions: [], generations: [], styles: [], packages: [], rewards: [], referrals: [], settings: [], botChats: [], botLinks: [] });
+const empty = (): DbShape => ({ users: [], sessions: [], generations: [], styles: [], packages: [], payments: [], rewards: [], referrals: [], settings: [], botChats: [], botLinks: [] });
 
 /** Upstash REST wire fixture. A competing instance can change the document just before CAS. */
 function fakeRedis(t: TestContext, initial?: string) {

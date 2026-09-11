@@ -8,7 +8,7 @@ import { RequestError, safeErrorMessage } from "./errors";
 
 const DB_FILE = path.resolve(process.cwd(), process.env.DATABASE_PATH || "data/app.json");
 const EMPTY: DbShape = {
-  users: [], sessions: [], generations: [], rewards: [], referrals: [], styles: [], packages: [], settings: [],
+  users: [], sessions: [], generations: [], rewards: [], referrals: [], styles: [], packages: [], payments: [], settings: [],
   // Messenger state (chats, one-time link/bind tokens). Same document, same CAS.
   botChats: [], botLinks: [],
 };

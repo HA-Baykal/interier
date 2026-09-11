@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import Account from "@/components/Account";
 import { resolvePageUser } from "@/lib/auth";
 import { referralCount, grantedRewards } from "@/lib/billing";
+import { activePackages } from "@/lib/config";
+import { ClientPackage } from "@/components/types";
 
 export default async function AccountPage({
   searchParams,
@@ -13,6 +15,20 @@ export default async function AccountPage({
   const user = await resolvePageUser(query);
   if (!user) redirect("/login");
   const rewards = await grantedRewards(user.id);
+  const packages: ClientPackage[] = (await activePackages()).map((p) => ({
+    id: p.id,
+    slug: p.slug,
+    nameRu: p.name.ru,
+    nameEn: p.name.en,
+    descRu: p.description?.ru || "",
+    descEn: p.description?.en || "",
+    credits: p.credits,
+    price: p.price,
+    badgeRu: p.badge?.ru || "",
+    badgeEn: p.badge?.en || "",
+    active: p.active,
+  }));
+
   return (
     <Account
       initialUser={{
@@ -30,6 +46,7 @@ export default async function AccountPage({
         telegramLinked: !!user.verifiedIdentities?.some(identity => identity.provider === "telegram"),
         referralCount: await referralCount(user.id),
       }}
+      packages={packages}
     />
   );
 }

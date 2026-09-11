@@ -25,6 +25,11 @@ type Settings = {
   active_profile?: string | null;
   compatible_configured: boolean;
   compatible_key_source?: string;
+  yookassa_enabled?: string;
+  yookassa_shop_id?: string;
+  yookassa_secret_key?: string;
+  yookassa_test_mode?: string;
+  yookassa_configured?: boolean;
 };
 
 type Env = { hasReplicate: boolean; hasOpenAI: boolean; hasTogether: boolean };
@@ -73,6 +78,7 @@ export default function Admin({
   const [diagnostics, setDiagnostics] = useState<string | null>(null);
   const [pkgModal, setPkgModal] = useState<PackageModalState>(null);
   const [pkgSaving, setPkgSaving] = useState(false);
+  const [copiedWebhook, setCopiedWebhook] = useState(false);
 
   function field(key: keyof Settings) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -451,6 +457,100 @@ export default function Admin({
               <button className="btn btn-sm btn-danger" onClick={() => delStyle(s.id)}>✕</button>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* YooKassa & Online Payments */}
+      <div className="panel mt">
+        <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <h2 style={{ fontSize: 19 }}>💳 {t("admin_yookassa_title")}</h2>
+            <p className="muted small" style={{ marginTop: 4 }}>
+              {t("admin_yookassa_desc")}
+            </p>
+          </div>
+          <div>
+            {form.yookassa_enabled === "0" ? (
+              <span className="chip">{t("admin_yookassa_status_off")}</span>
+            ) : form.yookassa_configured && form.yookassa_test_mode !== "1" ? (
+              <span className="chip" style={{ color: "var(--success)" }}>{t("admin_yookassa_status_live")}</span>
+            ) : (
+              <span className="chip" style={{ color: "var(--warn)" }}>{t("admin_yookassa_status_test")}</span>
+            )}
+          </div>
+        </div>
+
+        <div className="row" style={{ flexWrap: "wrap", gap: 16, marginTop: 16 }}>
+          <div className="field" style={{ flex: 1, minWidth: 200 }}>
+            <label>{t("admin_yookassa_enabled")}</label>
+            <select className="input" value={form.yookassa_enabled || "1"} onChange={field("yookassa_enabled")}>
+              <option value="1">{t("admin_on")}</option>
+              <option value="0">{t("admin_off")}</option>
+            </select>
+          </div>
+          <div className="field" style={{ flex: 1, minWidth: 200 }}>
+            <label>{t("admin_yookassa_test_mode")}</label>
+            <select className="input" value={form.yookassa_test_mode || "0"} onChange={field("yookassa_test_mode")}>
+              <option value="0">{t("admin_off")} (Боевой приём оплат)</option>
+              <option value="1">{t("admin_on")} (Песочница / Тест)</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="row" style={{ flexWrap: "wrap", gap: 16, marginTop: 12 }}>
+          <div className="field" style={{ flex: 1, minWidth: 220 }}>
+            <label>{t("admin_yookassa_shop_id")}</label>
+            <input
+              className="input"
+              placeholder="Например, 381928"
+              value={form.yookassa_shop_id || ""}
+              onChange={field("yookassa_shop_id")}
+            />
+          </div>
+          <div className="field" style={{ flex: 2, minWidth: 260 }}>
+            <label>{t("admin_yookassa_secret_key")}</label>
+            <input
+              className="input"
+              type="password"
+              autoComplete="new-password"
+              placeholder={form.yookassa_configured ? "Ключ сохранён — оставьте пустым, чтобы не менять" : "live_... или test_..."}
+              value={form.yookassa_secret_key || ""}
+              onChange={field("yookassa_secret_key")}
+            />
+          </div>
+        </div>
+
+        {/* Webhook copy box */}
+        <div className="mt" style={{ padding: "12px 14px", background: "rgba(255,255,255,0.03)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.07)" }}>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>🔗 {t("admin_yookassa_webhook_title")}</div>
+          <div className="row" style={{ marginTop: 8, gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <input
+              className="input"
+              style={{ flex: 1, minWidth: 260, fontSize: 13, background: "rgba(0,0,0,0.3)" }}
+              readOnly
+              value={typeof window !== "undefined" ? `${window.location.origin}/api/payments/yookassa/webhook` : "/api/payments/yookassa/webhook"}
+            />
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={() => {
+                const url = `${window.location.origin}/api/payments/yookassa/webhook`;
+                navigator.clipboard?.writeText(url);
+                setCopiedWebhook(true);
+                setTimeout(() => setCopiedWebhook(false), 2000);
+              }}
+            >
+              {copiedWebhook ? "✓ Скопировано" : "Скопировать URL"}
+            </button>
+          </div>
+          <p className="small muted" style={{ marginTop: 6 }}>
+            {t("admin_yookassa_webhook_hint")}
+          </p>
+        </div>
+
+        <div className="row" style={{ marginTop: 14 }}>
+          <button className="btn btn-primary btn-sm" onClick={saveSettings} disabled={saving}>
+            {saving ? "Сохраняем…" : t("admin_save")}
+          </button>
         </div>
       </div>
 

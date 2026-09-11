@@ -40,6 +40,6 @@ export type ClientPackage = {
   price: number;
   badgeRu?: string | null;
   badgeEn?: string | null;
-  badge: string | null;
+  badge?: string | null;
   active: boolean;
 };

@@ -4,6 +4,8 @@ import { getLocale } from "@/lib/locale";
 import { t } from "@/lib/i18n";
 import { activeStyles, activePackages } from "@/lib/config";
 import { getSessionUser } from "@/lib/auth";
+import PricingSection from "@/components/PricingSection";
+import { ClientPackage } from "@/components/types";
 
 export default async function HomePage() {
   const locale = getLocale();
@@ -12,6 +14,20 @@ export default async function HomePage() {
   const user = await getSessionUser();
   const studioHref = user ? "/studio" : "/register";
 
+  const clientPackages: ClientPackage[] = packages.map((p) => ({
+    id: p.id,
+    slug: p.slug,
+    nameRu: p.name.ru,
+    nameEn: p.name.en,
+    descRu: p.description.ru,
+    descEn: p.description.en,
+    credits: p.credits,
+    price: p.price,
+    badgeRu: p.badge?.ru || "",
+    badgeEn: p.badge?.en || "",
+    active: p.active,
+  }));
+
   return (
     <>
       {/* Hero */}
@@ -19,7 +35,7 @@ export default async function HomePage() {
         <div className="container">
           <span className="hero-badge">
             <span className="dot" />
-            {t(locale, "free_gen")} · {t(locale, "pricing_testmode")}
+            {t(locale, "free_gen")}
           </span>
           <h1>{t(locale, "hero_title")}</h1>
           <p>{t(locale, "hero_subtitle")}</p>
@@ -113,34 +129,12 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* Pricing */}
-      <section className="section" id="pricing">
-        <div className="container">
-          <h2 className="section-title">{t(locale, "pricing_title")}</h2>
-          <p className="section-sub">{t(locale, "pricing_subtitle")}</p>
-          <div className="pricing-grid">
-            {packages.map((p) => (
-              <div className={"price-card" + (p.badge ? " featured" : "")} key={p.id}>
-                {p.badge && <span className="badge">{p.badge[locale]}</span>}
-                <h3>{p.name[locale]}</h3>
-                <div className="credits">
-                  {p.credits} <span>{t(locale, "credits_label")}</span>
-                </div>
-                <div className="desc">{p.description[locale]}</div>
-                <div className="price">
-                  {p.price.toLocaleString("ru-RU")} ₽ <small>/ {t(locale, "per_gen")}</small>
-                </div>
-                <button className="btn btn-ghost" disabled title={t(locale, "buy_disabled")}>
-                  {t(locale, "buy_label")}
-                </button>
-              </div>
-            ))}
-          </div>
-          <p className="section-sub" style={{ marginTop: 26 }}>
-            <span className="testmode-pill">🔒 {t(locale, "pricing_testmode")}</span>
-          </p>
-        </div>
-      </section>
+      {/* Pricing with interactive Buy buttons */}
+      <PricingSection
+        packages={clientPackages}
+        locale={locale}
+        isLoggedIn={!!user}
+      />
 
       {/* Final CTA */}
       <section className="section" id="cta">

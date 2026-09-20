@@ -28,10 +28,9 @@ cp .env.example .env.local   # при необходимости отредак�
 npm run dev                  # dev-сервер на http://localhost:3000
 ```
 
-Нужен Node.js 22 LTS. Пошаговая настройка рабочего места с нуля (Windows / macOS /
-Linux), включая Claude Code на модели **DeepSeek** через Free Claude Code, —
-в [docs/LOCAL-SETUP-DEEPSEEK.md](docs/LOCAL-SETUP-DEEPSEEK.md). Правила проекта для
-ИИ-ассистента — в [CLAUDE.md](CLAUDE.md).
+Нужен Node.js 22 LTS. Инструкция «Claude Code на модели **DeepSeek** через Free Claude
+Code (Windows)» — в [docs/LOCAL-SETUP-DEEPSEEK.md](docs/LOCAL-SETUP-DEEPSEEK.md).
+Правила проекта для ИИ-ассистента — в [CLAUDE.md](CLAUDE.md).
 
 Проверки и продакшен-сборка (тесты не используют настоящие облачные ключи и не запускают платный ИИ):
 

@@ -1,7 +1,7 @@
 # CLAUDE.md — правила работы с репозиторием `interier`
 
 Этот файл Claude Code (в т.ч. через Free Claude Code + DeepSeek) читает автоматически.
-Локальная настройка окружения: `docs/LOCAL-SETUP-DEEPSEEK.md`.
+Настройка Claude Code на DeepSeek (Windows, Free Claude Code): `docs/LOCAL-SETUP-DEEPSEEK.md`.
 
 ## Что это за проект
 

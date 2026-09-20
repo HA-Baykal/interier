@@ -146,6 +146,7 @@ VS Code и не выбирайте этот пункт — без ключа Sam
 | «running scripts is disabled» при установке | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, повторить. |
 | Claude Code жалуется на Git Bash | Установите Git for Windows, перезапустите терминал. |
 | Медленно / обрывы | Peak-часы DeepSeek (см. п. 1) или сеть; переключите модель через `/model` или добавьте Fallback Models. |
+| Сайт DeepSeek не открывается без VPN, FCC пишет ошибку соединения с DeepSeek, а status.deepseek.com «зелёный» | Российский сетевой сбой/фильтрация (так было 24.05.2026 и 20.09.2026: без VPN не работает, РКН блокировку отрицает, доступ возвращается в течение суток). Ключ при этом исправен. Временно включите VPN **на весь компьютер** (или режим TUN / «для всех приложений» в VPN-клиенте) — отдельного поля прокси для DeepSeek в FCC нет. На будущее добавьте в Model Config → Fallback Models запасную модель у провайдера, доступного без VPN. Проверка ключа: с VPN → Providers → DeepSeek → Refresh models. |
 
 ---
 
